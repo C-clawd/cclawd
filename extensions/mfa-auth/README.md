@@ -178,11 +178,11 @@
   MFA_AUTH_DOMAIN=http://auth.your-domain.com
   ```
 
-  ### 4. 启用插件 (cclawd.json)
+  ### 4. 启用插件 (openclaw.json)
 
-  你需要在 `cclawd.json` 配置文件中显式加载并启用该插件。
+  你需要在 `openclaw.json` 配置文件中显式加载并启用该插件。
 
-  请编辑你的 `cclawd.json`，在 `plugins` 部分添加如下配置：
+  请编辑你的 `openclaw.json`，在 `plugins` 部分添加如下配置：
 
   ```json
   {
