@@ -1,0 +1,511 @@
+import type { OpenClawPluginApi } from "../../src/plugins/types.js";
+import { authManager } from "./src/auth-manager.js";
+import { config } from "./src/config.js";
+import { NotificationService } from "./src/notification-service.js";
+import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
+import { startHttpServer, setNotifyCallback, getServerBaseUrl } from "./src/server.js";
+import type { AuthSession } from "./src/types.js";
+
+let serverStarted = false;
+const notificationService = NotificationService.getInstance();
+const pendingAuthUsers = new Set<string>();
+
+async function sendAuthMessage(
+  channel: string | undefined,
+  accountId: string | undefined,
+  to: string,
+  message: string,
+  userId: string,
+  overrideSessionKey?: string,
+): Promise<void> {
+  const session: AuthSession = {
+    userId,
+    sessionId: "notification",
+    authMethod: "qr-code",
+    timestamp: Date.now(),
+    originalContext: {
+      sessionKey: overrideSessionKey || `${channel || "web"}:${accountId || ""}:${userId}`,
+      senderId: userId,
+      commandBody: "",
+      channel: channel || "web",
+      accountId: accountId || "",
+      to,
+      toolName: "notification",
+      toolParams: {},
+      timestamp: Date.now(),
+      triggerType: "sensitive_operation",
+    },
+  };
+
+  await notificationService.sendAuthNotification(session, message);
+}
+
+export default function register(api: OpenClawPluginApi) {
+  console.log("[mfa-auth] Plugin registration started");
+  authManager.registerProvider(qrCodeAuthProvider);
+
+  notificationService.setConfig(api.config);
+
+  setNotifyCallback(async (session: AuthSession) => {
+    api.logger.info(`[mfa-auth] User ${session.userId} verified`);
+
+    try {
+      const commandBody = session.originalContext.commandBody;
+      const triggerType = session.originalContext.triggerType || "sensitive_operation";
+
+      const isFirstMessageAuth = triggerType === "first_message";
+      const isReauth = commandBody.trim() === "/reauth";
+
+      let messageText = "";
+      if (isFirstMessageAuth) {
+        messageText = isReauth
+          ? `🎉 重新认证成功！请重新发送消息以继续对话。`
+          : `🎉 首次认证成功！请重新发送消息以继续对话。`;
+      } else {
+        messageText = `✅ 二次认证成功！\n\n请回到聊天窗口，重新发送之前的命令（或回复'确认'）即可执行。`;
+      }
+
+      const channel = session.originalContext.channel;
+      const sessionKey =
+        session.originalContext.sessionKey ||
+        `${channel}:${session.originalContext.accountId || ""}:${session.userId}`;
+
+      api.logger.info(`[mfa-auth] Sending notification to session: ${sessionKey}`);
+
+      await sendAuthMessage(
+        channel,
+        session.originalContext.accountId,
+        session.originalContext.to || session.userId,
+        messageText,
+        session.userId,
+        sessionKey,
+      );
+      api.logger.info(`[mfa-auth] Notification sent to user ${session.userId}`);
+    } catch (error) {
+      api.logger.error(`[mfa-auth] Failed in notify callback: ${String(error)}`);
+    }
+  });
+
+  api.on("message_sending", async (event, ctx) => {
+    const userId = event.to || ctx.conversationId || "unknown";
+
+    if (pendingAuthUsers.has(userId)) {
+      const session = authManager.getLatestSessionByUserId(userId);
+      const metadata = session?.metadata as Record<string, unknown> | undefined;
+
+      if (metadata?.authUrl) {
+        pendingAuthUsers.delete(userId);
+
+        let messageText = "";
+        if (metadata.triggerType === "first_message") {
+          messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+        } else if (metadata.triggerType === "sensitive_operation") {
+          messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${metadata.commandPreview}\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
+        }
+
+        return { content: messageText };
+      }
+    }
+  });
+
+  api.on("before_tool_call", async (event, ctx) => {
+    await authManager.ensureInitialized();
+    if (!config.requireAuthOnSensitiveOperation) {
+      return undefined;
+    }
+
+    const { toolName, params } = event;
+
+    api.logger.info(`[mfa-auth] Tool call detected: ${toolName}`);
+
+    const sensitiveTools = ["bash", "exec", "runCommand", "command", "process"];
+    if (!sensitiveTools.includes(toolName)) {
+      api.logger.info(`[mfa-auth] Tool ${toolName} is not in sensitive list, allowing`);
+      return undefined;
+    }
+
+    const command =
+      typeof params?.command === "string"
+        ? params.command
+        : typeof params?.cmd === "string"
+          ? params.cmd
+          : typeof params?.input === "string"
+            ? params.input
+            : typeof params?.args === "string"
+              ? params.args
+              : "";
+
+    api.logger.info(`[mfa-auth] Extracted command from ${toolName}: ${command}`);
+
+    if (!command) {
+      api.logger.info(`[mfa-auth] No command found in params, allowing`);
+      return undefined;
+    }
+
+    const { isSensitive, preview } = checkSensitiveOperation(command);
+    if (!isSensitive) {
+      api.logger.info(`[mfa-auth] Command is not sensitive, allowing`);
+      return undefined;
+    }
+
+    const userId = ctx.sessionKey || "unknown";
+
+    if (authManager.isUserVerifiedForSensitiveOps(userId)) {
+      api.logger.info(`[mfa-auth] User ${userId} is verified for sensitive ops, allowing`);
+      return undefined;
+    }
+
+    api.logger.info(`[mfa-auth] User ${userId} is NOT verified for sensitive ops.`);
+
+    const sessionKey = ctx.sessionKey || "";
+    const sessionKeyParts = sessionKey.split(":").filter(Boolean);
+
+    const parsedChannel = sessionKeyParts[2] || undefined;
+    let parsedAccountId = sessionKeyParts[3] || undefined;
+    const parsedTo = sessionKeyParts[sessionKeyParts.length - 1] || undefined;
+
+    // Fix: If accountId is "direct" or "group", it's actually the peerKind, not an accountId.
+    // This happens when the sessionKey omits the accountId (using default account).
+    if (parsedAccountId === "direct" || parsedAccountId === "group") {
+      parsedAccountId = undefined;
+    }
+
+    api.logger.info(
+      `[mfa-auth] Parsed from sessionKey: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
+    );
+
+    const session = authManager.generateSession(userId, {
+      sessionKey,
+      senderId: userId,
+      commandBody: command,
+      channel: parsedChannel,
+      to: parsedTo,
+      accountId: parsedAccountId,
+      toolName,
+      toolParams: params,
+      timestamp: Date.now(),
+      triggerType: "sensitive_operation",
+    });
+
+    if (!session) {
+      api.logger.error(`[mfa-auth] Failed to generate session for user ${userId}`);
+      return undefined;
+    }
+
+    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
+
+    api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
+
+    // For webchat, use userId as sessionKey instead of agent:main:<userId>
+    if (parsedChannel === "webchat" || parsedChannel === "web") {
+      try {
+        const sessionKeyForWebchat = userId;
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
+          userId,
+          sessionKeyForWebchat,
+        );
+        api.logger.info(
+          `[mfa-auth] Sent sensitive operation auth notification to webchat: sessionKey=${sessionKeyForWebchat}`,
+        );
+      } catch (error) {
+        api.logger.error(
+          `[mfa-auth] Failed to send webchat sensitive auth notification: ${String(error)}`,
+        );
+      }
+      // Also add to pending users as fallback
+      pendingAuthUsers.add(userId);
+      authManager.setSessionMetadata(session.sessionId, {
+        authUrl,
+        triggerType: "sensitive_operation",
+        commandPreview: preview,
+      });
+      return {
+        block: true,
+        blockReason: `🔐 该操作需要二次认证`,
+      };
+    }
+
+    if (parsedChannel && parsedChannel !== "web") {
+      if (parsedChannel !== "feishu") {
+        api.logger.warn(
+          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
+        );
+      } else {
+        api.logger.info(
+          `[mfa-auth] Sensitive operation params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
+        );
+
+        try {
+          await sendAuthMessage(
+            parsedChannel,
+            parsedAccountId,
+            parsedTo || userId,
+            `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
+            userId,
+          );
+        } catch (error) {
+          const errorDetails = error instanceof Error ? error.message : String(error);
+          api.logger.error(
+            `[mfa-auth] Failed to send sensitive operation auth notification: ${errorDetails}`,
+          );
+          api.logger.error(
+            `[mfa-auth] Sensitive operation notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+          );
+        }
+      }
+    }
+
+    authManager.registerPendingExecution(userId, session.sessionId);
+
+    return {
+      block: true,
+      blockReason: `🔐 该操作需要二次认证`,
+    };
+  });
+
+  api.on("message_received", async (event, ctx) => {
+    await authManager.ensureInitialized();
+
+    api.logger.info(
+      `[mfa-auth] First message auth check: config.requireAuthOnFirstMessage=${config.requireAuthOnFirstMessage}`,
+    );
+
+    if (!config.requireAuthOnFirstMessage) {
+      api.logger.warn(`[mfa-auth] First message auth is disabled in config, skipping.`);
+      return;
+    }
+
+    const userId = event.from || ctx.conversationId || "unknown";
+
+    if (authManager.isUserVerifiedForFirstMessage(userId)) {
+      api.logger.info(`[mfa-auth] User ${userId} already verified for first message`);
+      return;
+    }
+
+    api.logger.info(`[mfa-auth] First message from unauthenticated user ${userId}, requiring auth`);
+    api.logger.info(
+      `[mfa-auth] Debug Context: channelId=${ctx.channelId}, conversationId=${ctx.conversationId}, accountId=${ctx.accountId}, from=${event.from}`,
+    );
+
+    const parsedChannel = ctx.channelId;
+    const parsedAccountId = ctx.accountId || "";
+    const parsedTo = event.from;
+
+    // Use conversationId as sessionKey if available
+    // For webchat, try to use userId directly as sessionKey (common pattern)
+    let sessionKey = ctx.conversationId;
+    if (!sessionKey) {
+      if (parsedChannel === "webchat" || parsedChannel === "web") {
+        // For webchat, use userId as sessionKey (this is the most common pattern)
+        sessionKey = userId;
+        api.logger.info(`[mfa-auth] Using webchat sessionKey (userId): ${sessionKey}`);
+      } else {
+        // Fallback to channel:accountId:from format
+        sessionKey = `${parsedChannel}:${parsedAccountId}:${event.from}`;
+      }
+    }
+
+    const session = authManager.generateSession(userId, {
+      sessionKey,
+      senderId: userId,
+      commandBody: event.content || "",
+      channel: parsedChannel,
+      to: parsedTo,
+      accountId: parsedAccountId,
+      toolName: "",
+      toolParams: {},
+      timestamp: Date.now(),
+      triggerType: "first_message",
+    });
+
+    if (!session) {
+      api.logger.error(
+        `[mfa-auth] Failed to generate first message auth session for user ${userId}`,
+      );
+      return;
+    }
+
+    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
+
+    api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
+
+    if (parsedChannel === "webchat" || parsedChannel === "web") {
+      pendingAuthUsers.add(userId);
+      authManager.setSessionMetadata(session.sessionId, {
+        authUrl,
+        triggerType: "first_message",
+      });
+      return;
+    }
+
+    if (parsedChannel && parsedChannel !== "web") {
+      if (parsedChannel !== "feishu") {
+        api.logger.warn(
+          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
+        );
+      } else {
+        api.logger.info(
+          `[mfa-auth] First message auth params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
+        );
+
+        try {
+          await sendAuthMessage(
+            parsedChannel,
+            parsedAccountId,
+            parsedTo || userId,
+            `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+            userId,
+          );
+        } catch (error) {
+          const errorDetails = error instanceof Error ? error.message : String(error);
+          api.logger.error(
+            `[mfa-auth] Failed to send first message auth notification: ${errorDetails}`,
+          );
+          api.logger.error(
+            `[mfa-auth] Notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+          );
+        }
+      }
+    }
+  });
+
+  api.registerCommand({
+    name: "reauth",
+    description: "重新进行首次对话认证",
+    acceptsArgs: false,
+    requireAuth: false,
+    handler: async (ctx) => {
+      const userId = ctx.from || ctx.senderId || "unknown";
+      api.logger.info(
+        `[mfa-auth] /reauth command received. userId=${userId}, ctx.channel=${ctx.channel}, ctx.accountId=${ctx.accountId}, ctx.to=${ctx.to}`,
+      );
+
+      authManager.clearFirstMessageAuth(userId);
+
+      const parsedChannel = ctx.channel;
+      const parsedAccountId = ctx.accountId || "";
+      const parsedTo = ctx.to;
+
+      api.logger.info(
+        `[mfa-auth] Parsed: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
+      );
+
+      // For webchat, use userId as sessionKey
+      const sessionKey =
+        parsedChannel === "webchat" || parsedChannel === "web"
+          ? userId
+          : `${parsedChannel}:${parsedAccountId}:${userId}`;
+
+      api.logger.info(`[mfa-auth] Using sessionKey for reauth: ${sessionKey}`);
+
+      const session = authManager.generateSession(userId, {
+        sessionKey,
+        senderId: userId,
+        commandBody: "/reauth",
+        channel: parsedChannel,
+        to: parsedTo,
+        accountId: parsedAccountId,
+        toolName: "",
+        toolParams: {},
+        timestamp: Date.now(),
+        triggerType: "first_message",
+      });
+
+      if (!session) {
+        api.logger.error(`[mfa-auth] Failed to generate reauth session for user ${userId}`);
+        return { text: "❌ 认证会话创建失败，请稍后重试。" };
+      }
+
+      const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
+
+      api.logger.info(
+        `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,
+      );
+
+      const messageText = `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+
+      // Use sendAuthMessage to ensure consistent delivery via WebSocket for WebChat
+      // This will use the new robust session resolution logic
+      if (parsedChannel === "webchat" || parsedChannel === "web") {
+        try {
+          await sendAuthMessage(
+            parsedChannel,
+            parsedAccountId,
+            parsedTo || userId,
+            messageText,
+            userId,
+            sessionKey
+          );
+          return { text: "� 认证链接已发送，请查看最新消息。" };
+        } catch (error) {
+          api.logger.error(`[mfa-auth] Failed to send reauth link to webchat: ${String(error)}`);
+          // Fallback to returning text directly if push fails, though this might be less reliable if session context is lost
+          return { text: messageText };
+        }
+      }
+
+      if (!parsedChannel || parsedChannel !== "feishu") {
+        api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
+        return { text: "❌ 当前渠道不支持认证。" };
+      }
+
+      try {
+        api.logger.info(
+          `[mfa-auth] Sending reauth notification: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
+        );
+
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+          userId,
+        );
+
+        api.logger.info(`[mfa-auth] Reauth notification sent successfully`);
+        return { text: "📱 认证链接已发送，请查收。" };
+      } catch (error) {
+        api.logger.error(`[mfa-auth] Failed to send reauth notification: ${String(error)}`);
+        return { text: "❌ 认证链接发送失败，请稍后重试。" };
+      }
+    },
+  });
+
+  if (!serverStarted) {
+    api.logger.info("mfa-auth: Starting HTTP server...");
+    startHttpServer();
+    serverStarted = true;
+    api.logger.info("mfa-auth plugin loaded");
+  }
+}
+
+function checkSensitiveOperation(text: string): { isSensitive: boolean; preview: string } {
+  const lowerText = text.toLowerCase();
+
+  if (config.debug) {
+    console.log(`[mfa-auth] Checking sensitive keywords for: ${text}`);
+    console.log(
+      `[mfa-auth] Sensitive keywords configured: ${JSON.stringify(config.sensitiveKeywords)}`,
+    );
+  }
+
+  for (const keyword of config.sensitiveKeywords) {
+    if (lowerText.includes(keyword.toLowerCase())) {
+      const preview = text;
+      if (config.debug) {
+        console.log(`[mfa-auth] Sensitive keyword matched: ${keyword}`);
+      }
+      return { isSensitive: true, preview };
+    }
+  }
+
+  if (config.debug) {
+    console.log(`[mfa-auth] No sensitive keyword matched`);
+  }
+
+  return { isSensitive: false, preview: "" };
+}
