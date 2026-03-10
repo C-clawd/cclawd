@@ -1,12 +1,12 @@
 # CClawd MFA Auth 扩展
 
-`cclawd-mfa-auth` 是一个为 CClawd 提供多因素身份验证（MFA）的安全扩展插件。它主要用于保护敏感操作和验证首次对话的用户身份，确保系统的安全性和可控性。
+`mfa-auth` 是一个为 CClawd 提供多因素身份验证（MFA）的安全扩展插件。它主要用于保护敏感操作和验证首次对话的用户身份，确保系统的安全性和可控性。
 
 ## 功能特性
 
 1. **首次对话验证**：可配置新用户在首次发送消息时必须通过身份验证。
 2. **二次认证，敏感操作拦截**：自动拦截包含敏感关键词（如 `rm`, `restart`, `sudo`, `delete` 等）的命令执行，要求用户进行二次验证。
-3. **二维码验证**：集成 **Dabby (大白)** 身份核验服务，提供便捷的扫码实名认证。
+3. **二维码验证**：集成 **权威实名认证** 身份核验服务，提供便捷的扫码实名认证。
 4. **状态持久化**：验证状态可配置有效期并持久化保存，避免频繁重复验证。
 5. **多渠道支持**：支持 **飞书(Feishu)** 和 **Web** 聊天渠道，为不同场景提供灵活的认证方式。
 6. **域名与 HTTPS 支持**：支持配置自定义域名和 Nginx 反向代理，适应生产环境部署。
@@ -33,7 +33,7 @@ sequenceDiagram
     participant CClawd as CClawd核心
     participant Plugin as MFA插件
     participant Browser as 验证页面
-    participant Dabby as Dabby实名服务
+    participant Dabby as 权威实名认证
 
     User->>Channel: 发送消息/指令
     Channel->>CClawd: 接收消息
@@ -73,11 +73,11 @@ sequenceDiagram
 
 本插件目前支持以下聊天渠道:
 
-| 渠道                                                               | 状态        | 说明                                |
-| :----------------------------------------------------------------- | :---------- | :---------------------------------- |
-| **飞书 (Feishu/Lark)**                                             | ✅ 完全支持 | 支持发送认证链接,完成扫码认证       |
-| **Web/Webchat**                                                     | ⚠️ 有限支持 | 占未开发        |
-| 其他渠道 (Telegram, Discord, Slack, Signal, iMessage, WhatsApp 等) | ⚠️ 有限支持 | 占未开发 |
+| 渠道                                                               | 状态        | 说明                          |
+| :----------------------------------------------------------------- | :---------- | :---------------------------- |
+| **飞书 (Feishu/Lark)**                                             | ✅ 完全支持 | 支持发送认证链接,完成扫码认证 |
+| **Web/Webchat**                                                    | ⚠️ 有限支持 | 暂未开发                      |
+| 其他渠道 (Telegram, Discord, Slack, Signal, iMessage, WhatsApp 等) | ⚠️ 有限支持 | 暂未开发                      |
 
 **注意**:
 
@@ -106,7 +106,7 @@ npm install
 ```ini
 # --- MFA 认证扩展配置 ---
 
-# Dabby (大白) 实名认证账号 (必填)
+# 权威实名认证 实名认证账号 (必填)
 DABBY_CLIENT_ID=your_client_id_here
 DABBY_CLIENT_SECRET=your_client_secret_here
 
@@ -133,8 +133,8 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 
 **配置详解：**
 
-- `DABBY_CLIENT_ID`: Dabby (大白) 平台的 Client ID。
-- `DABBY_CLIENT_SECRET`: Dabby (大白) 平台的 Client Secret。
+- `DABBY_CLIENT_ID`: 权威实名认证平台的 Client ID。
+- `DABBY_CLIENT_SECRET`: 权威实名认证平台的 Client Secret。
 - `MFA_AUTH_DOMAIN`: **重要！** 如果你的服务器部署在云端，用户无法直接访问内网 IP，请配置此项。
   - 示例：`http://auth.example.com` 或 `https://auth.example.com`
   - 如果包含协议头（http/https），插件将直接使用该 URL 前缀，不再附加端口号（适用于 Nginx 反向代理场景）。
@@ -149,7 +149,7 @@ MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 | `MFA_VERIFICATION_DURATION`               | 敏感操作验证通过后的有效期（毫秒）   | `120000` (2分钟)                                  |
 | `MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE`       | 是否开启首次对话强制认证             | `false` (设为 `true` 开启)                        |
 | `MFA_FIRST_MESSAGE_AUTH_DURATION`         | 首次对话认证的有效期（毫秒）         | `86400000` (24小时)                               |
-| `MFA_AUTH_STATE_DIR`                      | 认证状态持久化存储目录               | `~/.cclawd/mfa-auth/`                           |
+| `MFA_AUTH_STATE_DIR`                      | 认证状态持久化存储目录               | `~/.cclawd/mfa-auth/`                             |
 
 ### 3. Nginx 反向代理配置 (推荐)
 
@@ -173,6 +173,7 @@ server {
 ```
 
 **配合的环境变量**：
+
 ```bash
 MFA_AUTH_DOMAIN=http://cclawd.dbhl.cn
 ```
