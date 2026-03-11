@@ -33,12 +33,14 @@ export const config: MfaConfig = {
   requireAuthOnFirstMessage: parseBooleanEnv(process.env.MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE) ?? true,
   firstMessageAuthDuration:
     Number.parseInt(process.env.MFA_FIRST_MESSAGE_AUTH_DURATION || "", 10) || 24 * 60 * 60 * 1000,
+  gatewayHost: process.env.MFA_GATEWAY_HOST || "127.0.0.1",
+  enableAuthNotification: parseBooleanEnv(process.env.MFA_ENABLE_AUTH_NOTIFICATION) ?? false,
 };
 
 export const dabbyConfig: DabbyConfig = {
   clientId: process.env.DABBY_CLIENT_ID || "",
   clientSecret: process.env.DABBY_CLIENT_SECRET || "",
-  apiBaseUrl: "https://api.dabby.com.cn/v2/api",
+  apiBaseUrl: process.env.DABBY_API_BASE_URL || "",
   tokenCacheDuration: 7000000,
   pollInterval: 2000,
 };

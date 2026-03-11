@@ -1,10 +1,7 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { ClawdbotConfig } from "openclaw/plugin-sdk";
-import { resolveFeishuAccount } from "../../feishu/src/accounts.js";
-import { createFeishuClient } from "../../feishu/src/client.js";
-import { getFeishuRuntime } from "../../feishu/src/runtime.js";
-import { assertFeishuMessageApiSuccess, toFeishuSendResult } from "../../feishu/src/send-result.js";
-import { resolveFeishuSendTarget } from "../../feishu/src/send-target.js";
+import { config } from "./config.js";
+import { resolveFeishuSendTarget } from "./feishu-support/index.js";
 import type { AuthSession } from "./types.js";
 
 class NotificationService {
@@ -50,8 +47,9 @@ class NotificationService {
     const { sessionKey } = session.originalContext;
     const port = this.cfg?.gateway?.port || 18789;
     const token = this.cfg?.gateway?.auth?.token;
+    const host = config.gatewayHost || "127.0.0.1";
 
-    console.log(`[mfa-auth] sendToWebChat: sessionKey=${sessionKey}, port=${port}`);
+    console.log(`[mfa-auth] sendToWebChat: sessionKey=${sessionKey}, host=${host}, port=${port}`);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wsModule = await import("ws");
@@ -59,7 +57,7 @@ class NotificationService {
 
     return new Promise((resolve, reject) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const ws: any = new WebSocket(`ws://127.0.0.1:${port}`);
+      const ws: any = new WebSocket(`ws://${host}:${port}`);
 
       const handshakeId = `mfa-handshake-${Date.now()}`;
       const sessionsListId = `mfa-sessions-${Date.now()}`;
@@ -279,31 +277,15 @@ class NotificationService {
     }
 
     try {
+      // Use local implementation
       const { client, receiveId, receiveIdType } = resolveFeishuSendTarget({
         cfg: this.cfg,
         to,
         accountId,
       });
 
-      let messageText = message;
-
-      try {
-        const tableMode = getFeishuRuntime().channel.text.resolveMarkdownTableMode({
-          cfg: this.cfg,
-          channel: "feishu",
-        });
-
-        messageText = getFeishuRuntime().channel.text.convertMarkdownTables(message, tableMode);
-      } catch (error) {
-        if (error instanceof Error && error.message === "Feishu runtime not initialized") {
-          console.warn(
-            "[mfa-auth] Feishu runtime not initialized yet, using original message text",
-          );
-          messageText = message;
-        } else {
-          throw error;
-        }
-      }
+      // Simplified message handling (no markdown table conversion for now)
+      const messageText = message;
 
       const { content, msgType } = this.buildFeishuPostMessagePayload({
         messageText,
@@ -318,9 +300,13 @@ class NotificationService {
         },
       });
 
-      assertFeishuMessageApiSuccess(response, "Feishu send failed");
-      const result = toFeishuSendResult(response, receiveId);
-      console.log(`[mfa-auth] Feishu message sent: ${result.messageId} to ${to}`);
+      // Simplified assertion
+      if (response.code !== 0) {
+         throw new Error(`Feishu API error ${response.code}: ${response.msg}`);
+      }
+      
+      const messageId = response.data?.message_id || "unknown";
+      console.log(`[mfa-auth] Feishu message sent: ${messageId} to ${to}`);
     } catch (error) {
       console.error(`[mfa-auth] Failed to send Feishu message: ${error}`);
       throw error;

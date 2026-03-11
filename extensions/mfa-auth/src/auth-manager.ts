@@ -6,10 +6,16 @@ interface FirstMessageAuthRecord {
   verifiedAt: number;
 }
 
+export interface NotificationInfo {
+  triggerType: "first_message" | "sensitive_operation";
+  isReauth: boolean;
+}
+
 export class AuthManager {
   private sessions = new Map<string, AuthSession>();
   public verifiedForSensitiveOps = new Map<string, number>();
   private verifiedForFirstMessage = new Map<string, number>();
+  private pendingNotifications = new Map<string, NotificationInfo>();
   private providers = new Map<string, AuthMethodProvider>();
   private config = config;
   private pendingExecutions = new Map<string, { sessionId: string; timestamp: number }>();
@@ -220,13 +226,9 @@ export class AuthManager {
 
     if (result.success) {
       const triggerType = session.originalContext.triggerType || "sensitive_operation";
+      const isReauth = session.originalContext.commandBody.trim() === "/reauth";
 
-      if (triggerType === "first_message") {
-        this.verifiedForFirstMessage.set(session.userId, Date.now());
-        this.persistFirstMessageAuth(session.userId);
-      } else {
-        this.verifiedForSensitiveOps.set(session.userId, Date.now());
-      }
+      this.markUserVerified(session.userId, triggerType, isReauth);
 
       this.sessions.delete(sessionId);
 
@@ -237,6 +239,15 @@ export class AuthManager {
     }
 
     return result;
+  }
+
+  checkAndConsumeNotification(userId: string): NotificationInfo | null {
+    const info = this.pendingNotifications.get(userId);
+    if (info) {
+      this.pendingNotifications.delete(userId);
+      return info;
+    }
+    return null;
   }
 
   isUserVerified(userId: string): boolean {
@@ -367,6 +378,7 @@ export class AuthManager {
   markUserVerified(
     userId: string,
     triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
+    isReauth: boolean = false,
   ): void {
     if (triggerType === "first_message") {
       this.verifiedForFirstMessage.set(userId, Date.now());
@@ -374,8 +386,11 @@ export class AuthManager {
     } else {
       this.verifiedForSensitiveOps.set(userId, Date.now());
     }
+    this.pendingNotifications.set(userId, { triggerType, isReauth });
     if (this.config.debug) {
-      console.log(`[mfa-auth] Marked user ${userId} as verified (${triggerType})`);
+      console.log(
+        `[mfa-auth] Marked user ${userId} as verified (${triggerType}, reauth=${isReauth})`,
+      );
     }
   }
 }

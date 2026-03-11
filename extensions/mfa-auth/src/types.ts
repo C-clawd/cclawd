@@ -46,6 +46,8 @@ export interface MfaConfig {
   requireAuthOnSensitiveOperation?: boolean;
   requireAuthOnFirstMessage?: boolean;
   firstMessageAuthDuration?: number;
+  gatewayHost?: string;
+  enableAuthNotification?: boolean;
 }
 
 export interface AuthMethodProvider {

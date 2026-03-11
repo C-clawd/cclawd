@@ -84,36 +84,41 @@ export class DabbyClient {
   }
 
   async getQrCode(): Promise<DabbyQrCodeResponse["tokenInfo"]> {
-    const accessToken = await this.getAccessToken();
-    const fetch = resolveFetch();
+    try {
+      const accessToken = await this.getAccessToken();
+      const fetch = resolveFetch();
 
-    const url = `${this.config.apiBaseUrl}/authreq`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "OpenClaw/1.0 (mfa-auth)",
-      },
-      body: JSON.stringify({
-        accessToken,
-        authType: "ScanAuth",
-        mode: 66,
-      }),
-    });
+      const url = `${this.config.apiBaseUrl}/authreq`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "OpenClaw/1.0 (mfa-auth)",
+        },
+        body: JSON.stringify({
+          accessToken,
+          authType: "ScanAuth",
+          mode: 66,
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = (await response.json()) as DabbyQrCodeResponse;
+
+      if (data.retCode !== 0) {
+        throw new Error(`Dabby API error: ${data.retMessage}`);
+      }
+
+      console.log(`[mfa-auth] QR code generated, certToken: ${data.tokenInfo.certToken}`);
+
+      return data.tokenInfo;
+    } catch (error: any) {
+      console.error(`[mfa-auth] Failed to generate QR code: ${error.message}`);
+      throw error;
     }
-
-    const data = (await response.json()) as DabbyQrCodeResponse;
-
-    if (data.retCode !== 0) {
-      throw new Error(`Dabby API error: ${data.retMessage}`);
-    }
-
-    console.log(`[mfa-auth] QR code generated, certToken: ${data.tokenInfo.certToken}`);
-
-    return data.tokenInfo;
   }
 
   async getAuthResult(certToken: string): Promise<{
@@ -121,46 +126,52 @@ export class DabbyClient {
     error?: string;
     authObject?: { idNum: string; fullName: string };
   }> {
-    const accessToken = await this.getAccessToken();
-    const fetch = resolveFetch();
+    try {
+      const accessToken = await this.getAccessToken();
+      const fetch = resolveFetch();
 
-    const url = `${this.config.apiBaseUrl}/authhist`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "OpenClaw/1.0 (mfa-auth)",
-      },
-      body: JSON.stringify({
-        accessToken,
-        authHistQry: { certToken },
-      }),
-    });
+      const url = `${this.config.apiBaseUrl}/authhist`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "OpenClaw/1.0 (mfa-auth)",
+        },
+        body: JSON.stringify({
+          accessToken,
+          authHistQry: { certToken },
+        }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data: DabbyAuthResultResponse = await response.json();
-
-    // 处理特定的“等待中”状态码
-    // 4401: 该 certToken 未进行认证 -> 视为 Pending 状态，继续轮询
-    if (data.retCode !== 0) {
-      if (data.retCode === 4401) {
-        return { status: "pending" };
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      // 其他错误才抛出异常
-      throw new Error(`Dabby API error: ${data.retMessage} (code: ${data.retCode})`);
+
+      const data: DabbyAuthResultResponse = await response.json();
+
+      // 处理特定的“等待中”状态码
+      // 4401: 该 certToken 未进行认证 -> 视为 Pending 状态，继续轮询
+      if (data.retCode !== 0) {
+        if (data.retCode === 4401) {
+          return { status: "pending" };
+        }
+        // 其他错误才抛出异常
+        throw new Error(`Dabby API error: ${data.retMessage} (code: ${data.retCode})`);
+      }
+
+      const resCode = data.authData.resCode;
+      const authObject = data.authData.authObject;
+
+      if (resCode === 0) {
+        return { status: "verified", authObject };
+      }
+
+      return { status: "failed", error: `认证失败 (resCode: ${resCode})` };
+    } catch (error: any) {
+      console.error(`[mfa-auth] Failed to get auth result: ${error.message}`);
+      // Don't throw here, return error status so polling can continue or fail gracefully
+      return { status: "failed", error: error.message };
     }
-
-    const resCode = data.authData.resCode;
-    const authObject = data.authData.authObject;
-
-    if (resCode === 0) {
-      return { status: "verified", authObject };
-    }
-
-    return { status: "failed", error: `认证失败 (resCode: ${resCode})` };
   }
 
   async checkQrCodeExpired(certToken: string, expireTimeMs: number): Promise<boolean> {

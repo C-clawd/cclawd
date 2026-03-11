@@ -406,7 +406,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
           ? '✅ 认证成功！请回到聊天窗口，重新发送消息以继续对话。'
           : '✅ 认证成功！请回到聊天窗口，重新发送消息以继续对话。';
       } else {
-        successMessage = '✅ 认证成功！请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
+        successMessage = '✅ 认证成功！<br><br>请回到聊天窗口，重新发送之前的命令' + operationNameTag + '即可执行。';
       }
 
       if (result) {
