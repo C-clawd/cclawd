@@ -68,27 +68,16 @@ export interface AuthResult {
 }
 
 export interface DabbyConfig {
-  clientId: string;
-  clientSecret: string;
+  apiKey: string;
   apiBaseUrl: string;
-  tokenCacheDuration: number;
   pollInterval: number;
 }
 
-export interface DabbyAccessTokenResponse {
-  accessToken: string;
-  apiVersion: string;
-  expireSeconds: number;
-  retCode: number;
-  retMessage: string;
-  timestamp: number;
-}
-
-export interface DabbyQrCodeResponse {
+export interface DabbyVerifyCodeResponse {
   apiVersion: string;
   retCode: number;
   retMessage: string;
-  tokenInfo: {
+  data: {
     authType: string;
     certToken: string;
     createdAt: string;
@@ -99,20 +88,15 @@ export interface DabbyQrCodeResponse {
   };
 }
 
-export interface DabbyAuthResultResponse {
-  apiVersion: string;
-  authData: {
-    authMode: number;
-    authObject: {
+export interface DabbyCheckAuthStatusResponse {
+  retCode: number;
+  retMessage: string;
+  data: {
+    authSuccess: boolean;
+    authResult: {
       idNum: string;
       fullName: string;
     };
-    authType: string;
-    portrait: string;
-    resCode: number;
-    resStr: string;
+    message: string;
   };
-  authInfo: Record<string, unknown>;
-  retCode: number;
-  retMessage: string;
 }

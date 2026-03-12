@@ -95,7 +95,7 @@ export function startHttpServer(): void {
                 return;
               }
 
-              const tokenInfo = await dabbyClient.getQrCode();
+              const tokenInfo = await dabbyClient.getVerifyCode();
               session.certToken = tokenInfo.certToken;
               session.qrcodeContent = tokenInfo.qrcodeContent;
               session.expireTimeMs = tokenInfo.expireTimeMs;

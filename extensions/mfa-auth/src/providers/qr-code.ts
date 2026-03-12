@@ -12,7 +12,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 
   async initialize(session: AuthSession): Promise<void> {
     try {
-      const tokenInfo = await dabbyClient.getQrCode();
+      const tokenInfo = await dabbyClient.getVerifyCode();
 
       authManager.updateAuthStatus(session.sessionId, "pending");
       session.certToken = tokenInfo.certToken;

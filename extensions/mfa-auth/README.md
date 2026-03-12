@@ -136,8 +136,7 @@ npm install
 # --- MFA 认证扩展配置 ---
 
 # 权威认证服务账号 (必填)
-DABBY_CLIENT_ID=your_client_id_here
-DABBY_CLIENT_SECRET=your_client_secret_here
+MFA_AUTH_API_KEY=your_api_key_here
 
 # 敏感操作关键词 (自定义拦截列表)
 # 只有当命令中包含这些关键词时，才会被拦截
@@ -158,8 +157,7 @@ MFA_AUTH_STATE_DIR=~/.openclaw/mfa-auth/    # 认证状态持久化目录
 
 **配置详解：**
 
-- `DABBY_CLIENT_ID`: 权威认证服务的 Client ID。
-- `DABBY_CLIENT_SECRET`: 权威认证服务的 Client Secret。
+- `MFA_AUTH_API_KEY`: 权威认证服务的 API Key。
 - `MFA_AUTH_DOMAIN`: **重要！** 如果你的服务器部署在云端，用户无法直接访问内网 IP，请配置此项。
   - 示例：`http://auth.example.com` 或 `https://auth.example.com`
   - 如果包含协议头（http/https），插件将直接使用该 URL 前缀，不再附加端口号。
