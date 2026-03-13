@@ -1,34 +1,9 @@
-```
+
 #  Cclawd — 个人 AI 安全助手
 
-**Cclawd** 是一款运行在你自己设备上的_个人 安全AI 助手_。
-它可以通过你已经在使用的频道（WhatsApp、Telegram、Slack、Discord、Google Chat、Signal、iMessage、BlueBubbles、IRC、Microsoft Teams、Matrix、飞书、LINE、Mattermost、Nextcloud Talk、Nostr、Synology Chat、Tlon、Twitch、Zalo、Zalo Personal、WebChat）与你交流。它支持在 macOS/iOS/Android 上语音对话，并能渲染一个你可控制的实时 Canvas。网关（Gateway）只是控制平面——产品的核心是这个助手本身。
+![logo](https://i-blog.csdnimg.cn/img_convert/2edc14039873fd4f6195b7ec9047e087.png#pic_center)
 
-如果你想要一个私人的、单用户的、感觉本地化、响应快速、始终在线的助手，这就是你要找的。
-
-[官网](https://openclaw.ai) · [文档](https://docs.openclaw.ai) · [愿景](VISION.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [快速开始](https://docs.openclaw.ai/start/getting-started) · [更新](https://docs.openclaw.ai/install/updating) · [展示](https://docs.openclaw.ai/start/showcase) · [常见问题](https://docs.openclaw.ai/help/faq) · [向导](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
-
-推荐的安装方式：在终端中运行引导向导（`openclaw onboard`）。
-向导会逐步引导你完成网关、工作区、频道和技能的配置。CLI 向导是推荐路径，支持 **macOS、Linux 和 Windows（通过 WSL2，强烈推荐）**。
-支持 npm、pnpm 或 bun。
-全新安装？从这里开始：[快速开始](https://docs.openclaw.ai/start/getting-started)
-
-## 赞助商
-
-| OpenAI                                                            | Vercel                                                            | Blacksmith                                                                   | Convex                                                                |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [![OpenAI](docs/assets/sponsors/openai.svg)](https://openai.com/) | [![Vercel](docs/assets/sponsors/vercel.svg)](https://vercel.com/) | [![Blacksmith](docs/assets/sponsors/blacksmith.svg)](https://blacksmith.sh/) | [![Convex](docs/assets/sponsors/convex.svg)](https://www.convex.dev/) |
-
-**订阅（OAuth）：**
-
-- **[OpenAI](https://openai.com/)** （ChatGPT/Codex）
-
-模型说明：虽然支持多种提供商和模型，但为获得最佳体验并降低提示注入风险，建议使用你能获取到的最强最新一代模型。详见[引导说明](https://docs.openclaw.ai/start/onboarding)。
-
-## 模型（选择 + 认证）
-
-- 模型配置 + CLI：[模型](https://docs.openclaw.ai/concepts/models)
-- 认证配置轮换（OAuth 与 API 密钥）+ 故障转移：[模型故障转移](https://docs.openclaw.ai/concepts/model-failover)
+**Cclawd** 是一款运行在你自己设备上的_个人 安全AI 助手，它是专为企业打造的 安全增强型 AI 智能体平台，它在 OpenClaw 原生内核之上，创新性地引入 网关风控与生物识别确权机制，解决了本地 AI 权限不可控、操作不可追溯的安全难题，让企业放心使用 AI 生产力。
 
 ## 安装（推荐方式）
 
@@ -455,5 +430,7 @@ ClawHub 是一个轻量级的技能注册表。启用 ClawHub 后，智能体可
 - [Windows（WSL2）](https://docs.openclaw.ai/platforms/windows)
 - [Linux 应用](https://docs.openclaw.ai/platforms/linux)
 
+
+```
 
 ```
