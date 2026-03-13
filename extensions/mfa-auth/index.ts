@@ -1,12 +1,12 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { authManager } from "./src/auth-manager.js";
 import { config } from "./src/config.js";
+import { dabbyClient } from "./src/dabby-client.js";
 import { NotificationService } from "./src/notification-service.js";
 import { qrCodeAuthProvider } from "./src/providers/qr-code.js";
-import { startHttpServer, setNotifyCallback, getServerBaseUrl } from "./src/server.js";
+import { setNotifyCallback } from "./src/server.js";
 import type { AuthSession } from "./src/types.js";
 
-let serverStarted = false;
 const notificationService = NotificationService.getInstance();
 const pendingAuthUsers = new Set<string>();
 
@@ -98,14 +98,17 @@ export default function register(api: OpenClawPluginApi) {
       const session = authManager.getLatestSessionByUserId(userId);
       const metadata = session?.metadata as Record<string, unknown> | undefined;
 
-      if (metadata?.authUrl) {
+      if (metadata?.qrCodeUrl) {
         pendingAuthUsers.delete(userId);
 
         let messageText = "";
         if (metadata.triggerType === "first_message") {
-          messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+          const isReauth = metadata.isReauth === true;
+          messageText = isReauth
+            ? `🔐 重新认证\n\n📱 请点击以下链接完成扫码认证:\n${metadata.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`
+            : `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n📱 请点击以下链接完成扫码认证:\n${metadata.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
         } else if (metadata.triggerType === "sensitive_operation") {
-          messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${metadata.commandPreview}\n\n请点击链接完成验证:\n${metadata.authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
+          messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${metadata.commandPreview}\n\n📱 请点击以下链接完成扫码认证:\n${metadata.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
         }
 
         return { content: messageText };
@@ -207,7 +210,7 @@ export default function register(api: OpenClawPluginApi) {
       `[mfa-auth] Parsed from sessionKey: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
     );
 
-    const session = authManager.generateSession(userId, {
+    const session = await authManager.generateSession(userId, {
       sessionKey,
       senderId: userId,
       commandBody: command,
@@ -225,8 +228,6 @@ export default function register(api: OpenClawPluginApi) {
       return undefined;
     }
 
-    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
-
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
     // For webchat, use userId as sessionKey instead of agent:main:<userId>
@@ -238,7 +239,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
+          `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
           userId,
           sessionKeyForWebchat,
         );
@@ -253,7 +254,7 @@ export default function register(api: OpenClawPluginApi) {
       // Also add to pending users as fallback
       pendingAuthUsers.add(userId);
       authManager.setSessionMetadata(session.sessionId, {
-        authUrl,
+        qrCodeUrl: session.qrCodeUrl,
         triggerType: "sensitive_operation",
         commandPreview: preview,
       });
@@ -279,36 +280,24 @@ export default function register(api: OpenClawPluginApi) {
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
       } else {
-        api.logger.info(
-          `[mfa-auth] Sensitive operation params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
+        const messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
+
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          messageText,
+          userId,
         );
 
-        try {
-          await sendAuthMessage(
-            parsedChannel,
-            parsedAccountId,
-            parsedTo || userId,
-            `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`,
-            userId,
-          );
-
-          startPollingForAuth(api, userId, session.sessionId, {
-            triggerType: "sensitive_operation",
-            isReauth: false,
-            channel: parsedChannel,
-            accountId: parsedAccountId,
-            to: parsedTo,
-            sessionKey: ctx.sessionKey || "",
-          });
-        } catch (error) {
-          const errorDetails = error instanceof Error ? error.message : String(error);
-          api.logger.error(
-            `[mfa-auth] Failed to send sensitive operation auth notification: ${errorDetails}`,
-          );
-          api.logger.error(
-            `[mfa-auth] Sensitive operation notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
-          );
-        }
+        startPollingForAuth(api, userId, session.sessionId, {
+          triggerType: "sensitive_operation",
+          isReauth: false,
+          channel: parsedChannel,
+          accountId: parsedAccountId,
+          to: parsedTo,
+          sessionKey: ctx.sessionKey || "",
+        });
       }
     }
 
@@ -329,6 +318,14 @@ export default function register(api: OpenClawPluginApi) {
 
     if (!config.requireAuthOnFirstMessage) {
       api.logger.warn(`[mfa-auth] First message auth is disabled in config, skipping.`);
+      return;
+    }
+
+    const content = event.content || "";
+    const isReauthCommand = content.trim() === "/reauth";
+
+    if (isReauthCommand) {
+      api.logger.info(`[mfa-auth] /reauth command detected, skipping first message auth check`);
       return;
     }
 
@@ -394,7 +391,7 @@ export default function register(api: OpenClawPluginApi) {
       }
     }
 
-    const session = authManager.generateSession(userId, {
+    const session = await authManager.generateSession(userId, {
       sessionKey,
       senderId: userId,
       commandBody: event.content || "",
@@ -414,14 +411,12 @@ export default function register(api: OpenClawPluginApi) {
       return;
     }
 
-    const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
-
     api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
 
     if (parsedChannel === "webchat" || parsedChannel === "web") {
       pendingAuthUsers.add(userId);
       authManager.setSessionMetadata(session.sessionId, {
-        authUrl,
+        qrCodeUrl: session.qrCodeUrl,
         triggerType: "first_message",
       });
 
@@ -443,36 +438,25 @@ export default function register(api: OpenClawPluginApi) {
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
       } else {
-        api.logger.info(
-          `[mfa-auth] First message auth params: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}, userId=${userId}`,
+        const messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          messageText,
+          userId,
+          sessionKey,
         );
 
-        try {
-          await sendAuthMessage(
-            parsedChannel,
-            parsedAccountId,
-            parsedTo || userId,
-            `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n请点击链接完成验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
-            userId,
-          );
-
-          startPollingForAuth(api, userId, session.sessionId, {
-            triggerType: "first_message",
-            isReauth: false,
-            channel: parsedChannel,
-            accountId: parsedAccountId,
-            to: parsedTo,
-            sessionKey: sessionKey,
-          });
-        } catch (error) {
-          const errorDetails = error instanceof Error ? error.message : String(error);
-          api.logger.error(
-            `[mfa-auth] Failed to send first message auth notification: ${errorDetails}`,
-          );
-          api.logger.error(
-            `[mfa-auth] Notification details: channel=${parsedChannel}, to=${parsedTo}, accountId=${parsedAccountId}`,
-          );
-        }
+        startPollingForAuth(api, userId, session.sessionId, {
+          triggerType: "first_message",
+          isReauth: false,
+          channel: parsedChannel,
+          accountId: parsedAccountId,
+          to: parsedTo,
+          sessionKey: sessionKey,
+        });
       }
     }
   });
@@ -506,7 +490,7 @@ export default function register(api: OpenClawPluginApi) {
 
       api.logger.info(`[mfa-auth] Using sessionKey for reauth: ${sessionKey}`);
 
-      const session = authManager.generateSession(userId, {
+      const session = await authManager.generateSession(userId, {
         sessionKey,
         senderId: userId,
         commandBody: "/reauth",
@@ -524,18 +508,23 @@ export default function register(api: OpenClawPluginApi) {
         return { text: "❌ 认证会话创建失败，请稍后重试。" };
       }
 
-      const authUrl = `${getServerBaseUrl()}/mfa-auth/${session.sessionId}`;
-
       api.logger.info(
         `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,
       );
 
-      const messageText = `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+      const messageText = `🔐 重新认证\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
 
       // Use sendAuthMessage to ensure consistent delivery via WebSocket for WebChat
       // This will use the new robust session resolution logic
       if (parsedChannel === "webchat" || parsedChannel === "web") {
         try {
+          pendingAuthUsers.add(userId);
+          authManager.setSessionMetadata(session.sessionId, {
+            qrCodeUrl: session.qrCodeUrl,
+            triggerType: "first_message",
+            isReauth: true,
+          });
+
           await sendAuthMessage(
             parsedChannel,
             parsedAccountId,
@@ -576,7 +565,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          `🔐 重新认证\n\n请点击以下链接完成身份验证:\n${authUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
+          `🔐 重新认证\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`,
           userId,
         );
 
@@ -598,12 +587,7 @@ export default function register(api: OpenClawPluginApi) {
     },
   });
 
-  if (!serverStarted) {
-    api.logger.info("mfa-auth: Starting HTTP server...");
-    startHttpServer();
-    serverStarted = true;
-    api.logger.info("mfa-auth plugin loaded");
-  }
+  api.logger.info("mfa-auth plugin loaded");
 }
 
 function startPollingForAuth(
@@ -619,23 +603,44 @@ function startPollingForAuth(
     sessionKey?: string;
   },
 ) {
-  // Only start polling if notification is disabled (passive mode)
-  // Or we can always poll as a fallback?
-  // User asked for this SPECIFICALLY when enableAuthNotification is false.
-  // But if it's true, the callback will handle it.
-  // To avoid double notification, we should check the config here or ensure consumption is atomic.
-  // Since checkAndConsumeNotification is atomic, we can run this safely even if callback also runs.
-
   api.logger.info(
     `[mfa-auth] Starting polling for auth status: userId=${userId}, sessionId=${sessionId}`,
   );
 
-  const pollInterval = setInterval(() => {
+  const pollInterval = setInterval(async () => {
     let isVerified = false;
     if (context.triggerType === "first_message") {
       isVerified = authManager.isUserVerifiedForFirstMessage(userId);
     } else {
       isVerified = authManager.isUserVerifiedForSensitiveOps(userId);
+    }
+
+    if (!isVerified) {
+      const session = authManager.getSession(sessionId);
+      if (session && session.certToken) {
+        try {
+          const authResult = await dabbyClient.getAuthResult(session.certToken);
+          if (authResult.status === "verified") {
+            api.logger.info(`[mfa-auth] Auth verification successful for session ${sessionId}`);
+            authManager.markUserVerified(
+              userId,
+              context.triggerType === "first_message" ? "first_message" : "sensitive_operation",
+              context.isReauth,
+            );
+            isVerified = true;
+          } else if (authResult.status === "failed" || authResult.status === "expired") {
+            api.logger.warn(
+              `[mfa-auth] Auth failed or expired for session ${sessionId}: ${authResult.error}`,
+            );
+            clearInterval(pollInterval);
+            return;
+          }
+        } catch (error) {
+          api.logger.error(
+            `[mfa-auth] Failed to check auth status for session ${sessionId}: ${String(error)}`,
+          );
+        }
+      }
     }
 
     if (isVerified) {

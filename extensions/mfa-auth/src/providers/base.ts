@@ -7,7 +7,6 @@ export abstract class BaseAuthProvider implements AuthMethodProvider {
 
   abstract initialize(session: AuthSession): Promise<void>;
   abstract verify(sessionId: string, userInput?: string): Promise<AuthResult>;
-  abstract generateAuthPage(session: AuthSession, authUrl: string): Promise<string>;
 
   cleanup(sessionId: string): void {}
 }

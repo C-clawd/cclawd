@@ -19,7 +19,6 @@ export const config: MfaConfig = {
   timeout: 5 * 60 * 1000,
   verificationDuration:
     Number.parseInt(process.env.MFA_VERIFICATION_DURATION || "", 10) || 2 * 60 * 1000,
-  port: 18801,
   domain: process.env.MFA_AUTH_DOMAIN || "",
   allowlistUsers: [],
   enabledAuthMethods: ["qr-code"],

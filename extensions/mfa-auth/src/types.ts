@@ -35,7 +35,6 @@ export interface PendingAuthContext {
 export interface MfaConfig {
   timeout: number;
   verificationDuration: number;
-  port: number;
   domain?: string;
   debug: boolean;
   sensitiveKeywords: string[];
@@ -58,7 +57,6 @@ export interface AuthMethodProvider {
   initialize(session: AuthSession): Promise<void>;
   verify(sessionId: string, userInput?: string): Promise<AuthResult>;
   cleanup(sessionId: string): void;
-  generateAuthPage(session: AuthSession, authUrl: string): Promise<string>;
 }
 
 export interface AuthResult {

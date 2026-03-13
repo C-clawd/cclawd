@@ -171,12 +171,12 @@ export class AuthManager {
     return this.providers.get(methodType);
   }
 
-  generateSession(
+  async generateSession(
     userId: string,
     originalContext: PendingAuthContext,
     authMethod: string = this.config.defaultAuthMethod,
     extraFields?: Partial<AuthSession>,
-  ): AuthSession | null {
+  ): Promise<AuthSession | null> {
     const provider = this.getProvider(authMethod);
     if (!provider) {
       console.error(`[mfa-auth] Auth provider not found: ${authMethod}`);
@@ -194,6 +194,8 @@ export class AuthManager {
     };
 
     this.sessions.set(sessionId, session);
+
+    await provider.initialize(session);
 
     if (this.config.debug) {
       console.log(`[mfa-auth] Generated session: ${sessionId}`);
