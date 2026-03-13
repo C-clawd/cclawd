@@ -16,8 +16,8 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 
       authManager.updateAuthStatus(session.sessionId, "pending");
       session.certToken = tokenInfo.certToken;
-      session.qrcodeContent = tokenInfo.qrcodeContent;
-      session.expireTimeMs = tokenInfo.expireTimeMs;
+      session.qrCodeUrl = tokenInfo.qrCodeUrl;
+      session.expireTimeMs = Date.now() + 5 * 60 * 1000;
       session.authStatus = "pending";
 
       console.log(`[mfa-auth] QR code initialized for session ${session.sessionId}`);
@@ -73,7 +73,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
         ? session.originalContext.commandBody.substring(0, 100) + "..."
         : session.originalContext.commandBody;
 
-    const qrCode = session.qrcodeContent ? await renderQrPngBase64(session.qrcodeContent) : "";
+    const qrCode = session.qrCodeUrl ? await renderQrPngBase64(session.qrCodeUrl) : "";
     const isReauth = session.originalContext.commandBody.trim() === "/reauth";
 
     return this.renderHtml(
@@ -84,7 +84,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       triggerType,
       isReauth,
       authUrl,
-      session.qrcodeContent || "",
+      session.qrCodeUrl || "",
     );
   }
 
@@ -479,9 +479,9 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
 
                 // 更新二维码链接
                 const qrLink = document.getElementById('qr-link-url');
-                if (qrLink && data.qrcodeContent) {
-                    qrLink.href = data.qrcodeContent;
-                    qrLink.textContent = data.qrcodeContent;
+                if (qrLink && data.qrCodeUrl) {
+                    qrLink.href = data.qrCodeUrl;
+                    qrLink.textContent = data.qrCodeUrl;
                 }
 
                 timeLeft = data.remainingTime;

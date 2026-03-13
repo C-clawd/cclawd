@@ -16,34 +16,29 @@ describe("DabbyClient", () => {
 
   describe("getVerifyCode", () => {
     it("should fetch verify code with API key", async () => {
+      const testQrCodeUrl = "https://example.com/auth?certToken=cert-token-789";
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           retCode: 0,
-          retMessage: "成功",
-          apiVersion: "3.3.0",
+          message: "成功",
           data: {
-            authType: "ScanAuth",
             certToken: "cert-token-789",
-            createdAt: "2024-01-01 00:00:00",
-            expireAt: "2024-01-01 00:05:00",
-            expireTimeMs: Date.now() + 5 * 60 * 1000,
-            qrcodeContent: "https://h5.dabby.com.cn/authhtml/#/auth?certToken=cert-token-789",
-            timestamp: Date.now(),
+            qrCodeUrl: testQrCodeUrl,
           },
         }),
       });
 
       const result = await client.getVerifyCode();
       expect(result.certToken).toBe("cert-token-789");
-      expect(result.qrcodeContent).toContain("h5.dabby.com.cn");
-      
+      expect(result.qrCodeUrl).toBe(testQrCodeUrl);
+
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/getVerifyCode"),
         expect.objectContaining({
-            method: "POST",
-            body: expect.stringContaining('"apiKey":"test-api-key"'),
-        })
+          method: "POST",
+          body: expect.stringContaining('"apiKey":"test-api-key"'),
+        }),
       );
     });
 
@@ -52,8 +47,7 @@ describe("DabbyClient", () => {
         ok: true,
         json: async () => ({
           retCode: 1001,
-          retMessage: "生成二维码失败",
-          apiVersion: "3.3.0",
+          message: "生成二维码失败",
           data: null,
         }),
       });
@@ -68,7 +62,7 @@ describe("DabbyClient", () => {
         ok: true,
         json: async () => ({
           retCode: 0,
-          retMessage: "成功",
+          message: "成功",
           data: {
             authSuccess: true,
             authResult: {
@@ -83,13 +77,13 @@ describe("DabbyClient", () => {
       const result = await client.getAuthResult("cert-token-789");
       expect(result.status).toBe("verified");
       expect(result.authObject?.fullName).toBe("张三");
-      
+
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/checkAuthStatus"),
         expect.objectContaining({
-            method: "POST",
-            body: expect.stringContaining('"apiKey":"test-api-key"'),
-        })
+          method: "POST",
+          body: expect.stringContaining('"apiKey":"test-api-key"'),
+        }),
       );
     });
 
@@ -98,7 +92,7 @@ describe("DabbyClient", () => {
         ok: true,
         json: async () => ({
           retCode: 0,
-          retMessage: "成功",
+          message: "成功",
           data: {
             authSuccess: false,
             authResult: {},
@@ -111,13 +105,13 @@ describe("DabbyClient", () => {
       expect(result.status).toBe("failed");
       expect(result.error).toContain("认证失败或超时");
     });
-    
+
     it("should return pending status when retCode is 4401", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           retCode: 4401,
-          retMessage: "等待认证",
+          message: "等待认证",
           data: null,
         }),
       });
@@ -131,7 +125,7 @@ describe("DabbyClient", () => {
         ok: true,
         json: async () => ({
           retCode: 500,
-          retMessage: "服务器错误",
+          message: "服务器错误",
           data: null,
         }),
       });

@@ -9,7 +9,7 @@ export interface AuthSession {
   timestamp: number;
   originalContext: PendingAuthContext;
   certToken?: string;
-  qrcodeContent?: string;
+  qrCodeUrl?: string;
   expireTimeMs?: number;
   authStatus?: AuthStatus;
   metadata?: Record<string, unknown>;
@@ -74,23 +74,18 @@ export interface DabbyConfig {
 }
 
 export interface DabbyVerifyCodeResponse {
-  apiVersion: string;
   retCode: number;
   retMessage: string;
+  message?: string;
   data: {
-    authType: string;
     certToken: string;
-    createdAt: string;
-    expireAt: string;
-    expireTimeMs: number;
-    qrcodeContent: string;
-    timestamp: number;
+    qrCodeUrl: string;
   };
 }
 
 export interface DabbyCheckAuthStatusResponse {
   retCode: number;
-  retMessage: string;
+  message: string;
   data: {
     authSuccess: boolean;
     authResult: {

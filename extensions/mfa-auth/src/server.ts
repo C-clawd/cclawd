@@ -97,13 +97,13 @@ export function startHttpServer(): void {
 
               const tokenInfo = await dabbyClient.getVerifyCode();
               session.certToken = tokenInfo.certToken;
-              session.qrcodeContent = tokenInfo.qrcodeContent;
-              session.expireTimeMs = tokenInfo.expireTimeMs;
+              session.qrCodeUrl = tokenInfo.qrCodeUrl;
+              session.expireTimeMs = Date.now() + 5 * 60 * 1000;
 
               authManager.updateAuthStatus(sessionId, "pending");
               console.log(`[mfa-auth] QR code refreshed for session ${session.sessionId}`);
 
-              const qrcodeBase64 = await renderQrPngBase64(session.qrcodeContent);
+              const qrcodeBase64 = await renderQrPngBase64(session.qrCodeUrl);
 
               // 计算剩余时间
               const remainingTime = Math.max(
@@ -116,7 +116,7 @@ export function startHttpServer(): void {
                 JSON.stringify({
                   success: true,
                   qrcodeBase64,
-                  qrcodeContent: session.qrcodeContent,
+                  qrCodeUrl: session.qrCodeUrl,
                   expireTimeMs: session.expireTimeMs,
                   remainingTime,
                 }),
