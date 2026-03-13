@@ -96,7 +96,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
     triggerType: "first_message" | "sensitive_operation" = "sensitive_operation",
     isReauth: boolean = false,
     authUrl: string,
-    qrCodeContent: string,
+    qrCodeUrl: string,
   ): string {
     const escapedPreview = this.escapeHtml(commandPreview);
     const isFirstMessageAuth = triggerType === "first_message";
@@ -333,7 +333,7 @@ export class QrCodeAuthProvider extends BaseAuthProvider {
       </div>
       <div class="qr-link">
         <div class="qr-link-label">🔗 二维码链接：</div>
-        <a href="${qrCodeContent}" class="qr-link-url" id="qr-link-url" target="_blank">${qrCodeContent}</a>
+        <a href="${qrCodeUrl}" class="qr-link-url" id="qr-link-url" target="_blank">${qrCodeUrl}</a>
       </div>
     </div>
     <div class="timer">⏱️ 有效期: <span id="timer">${Math.floor(remainingTime / 60)}:${String(remainingTime % 60).padStart(2, "0")}</span></div>
