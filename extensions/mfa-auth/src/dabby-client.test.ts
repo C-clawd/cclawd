@@ -31,7 +31,7 @@ describe("DabbyClient", () => {
 
       const result = await client.getVerifyCode();
       expect(result.certToken).toBe("cert-token-789");
-      expect(result.qrCodeUrl).toBe(testQrCodeUrl);
+      expect(result.qrCodeUrl).toBe(`${testQrCodeUrl}&fromSource=Cclawd`);
 
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining("/api/v1/getVerifyCode"),

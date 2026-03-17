@@ -65,7 +65,17 @@ export class DabbyClient {
           `[mfa-auth] Verify code generated, certToken: ${data.data.certToken}, qrCodeUrl: ${data.data.qrCodeUrl}`,
         );
 
-        return data.data;
+        // Append fromSource parameter to qrCodeUrl
+        const qrCodeUrlWithSource = data.data.qrCodeUrl.includes("?")
+          ? `${data.data.qrCodeUrl}&fromSource=Cclawd`
+          : `${data.data.qrCodeUrl}?fromSource=Cclawd`;
+
+        console.log(`[mfa-auth] QR code URL with fromSource: ${qrCodeUrlWithSource}`);
+
+        return {
+          ...data.data,
+          qrCodeUrl: qrCodeUrlWithSource,
+        };
       } catch (error: any) {
         console.error(`[mfa-auth] Attempt ${i + 1} failed to get verify code: ${error.message}`);
         if (error.cause) {
