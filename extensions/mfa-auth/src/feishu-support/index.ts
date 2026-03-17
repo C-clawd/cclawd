@@ -1,6 +1,6 @@
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { ClawdbotConfig } from "openclaw/plugin-sdk";
-import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk/feishu";
+import { normalizeResolvedSecretInputString } from "openclaw/plugin-sdk";
 
 // --- Types ---
 
