@@ -19,7 +19,6 @@ export const config: MfaConfig = {
   timeout: 5 * 60 * 1000,
   verificationDuration:
     Number.parseInt(process.env.MFA_VERIFICATION_DURATION || "", 10) || 2 * 60 * 1000,
-  port: 18801,
   domain: process.env.MFA_AUTH_DOMAIN || "",
   allowlistUsers: [],
   enabledAuthMethods: ["qr-code"],
@@ -38,9 +37,7 @@ export const config: MfaConfig = {
 };
 
 export const dabbyConfig: DabbyConfig = {
-  clientId: process.env.DABBY_CLIENT_ID || "",
-  clientSecret: process.env.DABBY_CLIENT_SECRET || "",
+  apiKey: process.env.MFA_AUTH_API_KEY || "",
   apiBaseUrl: process.env.DABBY_API_BASE_URL || "",
-  tokenCacheDuration: 7000000,
   pollInterval: 2000,
 };

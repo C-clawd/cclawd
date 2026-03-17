@@ -1,9 +1,8 @@
 import { dabbyConfig } from "./config.js";
 import type {
   DabbyConfig,
-  DabbyAccessTokenResponse,
-  DabbyQrCodeResponse,
-  DabbyAuthResultResponse,
+  DabbyVerifyCodeResponse,
+  DabbyCheckAuthStatusResponse,
 } from "./types.js";
 
 const resolveFetch = (): typeof fetch => {
@@ -15,110 +14,79 @@ const resolveFetch = (): typeof fetch => {
 };
 
 export class DabbyClient {
-  private cachedAccessToken: string | null = null;
-  private tokenExpiryTime: number = 0;
-
   constructor(private config: DabbyConfig = dabbyConfig) {}
 
-  async getAccessToken(forceRefresh = false): Promise<string> {
-    if (!this.config.clientId || !this.config.clientSecret) {
-      throw new Error("Dabby clientId and clientSecret are not configured");
+  async getVerifyCode(): Promise<DabbyVerifyCodeResponse["data"]> {
+    if (!this.config.apiKey) {
+      throw new Error("MFA_AUTH_API_KEY is not configured");
     }
 
-    if (!forceRefresh && this.cachedAccessToken && Date.now() < this.tokenExpiryTime) {
-      return this.cachedAccessToken;
-    }
-
-    const url = `${this.config.apiBaseUrl}/getaccesstoken`;
-    const params = new URLSearchParams({
-      clientId: this.config.clientId,
-      clientSecret: this.config.clientSecret,
-    });
     const fetch = resolveFetch();
-    const fullUrl = `${url}?${params.toString()}`;
-    console.log(`[mfa-auth] Fetching accessToken from: ${fullUrl}`);
+    const url = `${this.config.apiBaseUrl}/api/v1/getVerifyCode`;
+
+    const requestBody = {
+      apiKey: this.config.apiKey,
+      authType: "ScanAuth",
+      mode: "66",
+    };
+
+    console.log(`[mfa-auth] Fetching verify code from: ${url}`);
+    console.log(`[mfa-auth] Request body:`, JSON.stringify(requestBody, null, 2));
 
     let lastError: any;
     for (let i = 0; i < 3; i++) {
       try {
-        const response = await fetch(fullUrl, {
-          method: "GET",
+        const response = await fetch(url, {
+          method: "POST",
           headers: {
             "Content-Type": "application/json",
             "User-Agent": "OpenClaw/1.0 (mfa-auth)",
           },
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = (await response.json()) as DabbyAccessTokenResponse;
+        const data = (await response.json()) as DabbyVerifyCodeResponse;
+
+        console.log(`[mfa-auth] API response:`, JSON.stringify(data, null, 2));
 
         if (data.retCode !== 0) {
-          throw new Error(`Dabby API error: ${data.retMessage}`);
+          throw new Error(`Dabby API error: ${data.message} (code: ${data.retCode})`);
         }
 
-        this.cachedAccessToken = data.accessToken;
-        this.tokenExpiryTime = Date.now() + data.expireSeconds * 1000;
+        if (!data.data) {
+          throw new Error("Dabby API returned empty data");
+        }
 
-        console.log(`[mfa-auth] Dabby accessToken refreshed, expires in ${data.expireSeconds}s`);
+        console.log(
+          `[mfa-auth] Verify code generated, certToken: ${data.data.certToken}, qrCodeUrl: ${data.data.qrCodeUrl}`,
+        );
 
-        return this.cachedAccessToken;
+        return data.data;
       } catch (error: any) {
-        console.error(`[mfa-auth] Attempt ${i + 1} failed to get accessToken: ${error.message}`);
+        console.error(`[mfa-auth] Attempt ${i + 1} failed to get verify code: ${error.message}`);
         if (error.cause) {
           console.error(`[mfa-auth] Failure cause:`, error.cause);
         }
         lastError = error;
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait 1s before retry
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
     }
 
-    console.error(`[mfa-auth] Failed to get accessToken after 3 attempts`);
+    console.error(`[mfa-auth] Failed to get verify code after 3 attempts`);
     throw lastError;
   }
 
-  async refreshAccessToken(): Promise<string> {
-    return this.getAccessToken(true);
-  }
-
-  async getQrCode(): Promise<DabbyQrCodeResponse["tokenInfo"]> {
-    try {
-      const accessToken = await this.getAccessToken();
-      const fetch = resolveFetch();
-
-      const url = `${this.config.apiBaseUrl}/authreq`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "OpenClaw/1.0 (mfa-auth)",
-        },
-        body: JSON.stringify({
-          accessToken,
-          authType: "ScanAuth",
-          mode: 66,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = (await response.json()) as DabbyQrCodeResponse;
-
-      if (data.retCode !== 0) {
-        throw new Error(`Dabby API error: ${data.retMessage}`);
-      }
-
-      console.log(`[mfa-auth] QR code generated, certToken: ${data.tokenInfo.certToken}`);
-
-      return data.tokenInfo;
-    } catch (error: any) {
-      console.error(`[mfa-auth] Failed to generate QR code: ${error.message}`);
-      throw error;
-    }
+  // Alias for backward compatibility if needed by other files, or just refactor them too.
+  // The plan said "Rename or keep original name". I'll keep this alias to minimize changes in other files for now,
+  // but I'll also update the other files to use getVerifyCode if I can.
+  // Actually, I'll update other files to use getVerifyCode as per plan step 4.
+  // But keeping it as alias is safer during transition.
+  async getQrCode(): Promise<DabbyVerifyCodeResponse["data"]> {
+    return this.getVerifyCode();
   }
 
   async getAuthResult(certToken: string): Promise<{
@@ -126,50 +94,53 @@ export class DabbyClient {
     error?: string;
     authObject?: { idNum: string; fullName: string };
   }> {
-    try {
-      const accessToken = await this.getAccessToken();
-      const fetch = resolveFetch();
+    if (!this.config.apiKey) {
+      return { status: "failed", error: "MFA_AUTH_API_KEY is not configured" };
+    }
 
-      const url = `${this.config.apiBaseUrl}/authhist`;
+    try {
+      const fetch = resolveFetch();
+      const url = `${this.config.apiBaseUrl}/api/v1/checkAuthStatus`;
+
+      const requestBody = {
+        apiKey: this.config.apiKey,
+        certToken,
+      };
+
+      console.log(`[mfa-auth] Checking auth status for certToken: ${certToken}`);
+      console.log(`[mfa-auth] CheckAuthStatus request body:`, JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "User-Agent": "OpenClaw/1.0 (mfa-auth)",
         },
-        body: JSON.stringify({
-          accessToken,
-          authHistQry: { certToken },
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data: DabbyAuthResultResponse = await response.json();
+      const data = (await response.json()) as DabbyCheckAuthStatusResponse;
 
-      // 处理特定的“等待中”状态码
-      // 4401: 该 certToken 未进行认证 -> 视为 Pending 状态，继续轮询
+      console.log(`[mfa-auth] CheckAuthStatus response:`, JSON.stringify(data, null, 2));
+
       if (data.retCode !== 0) {
         if (data.retCode === 4401) {
           return { status: "pending" };
         }
-        // 其他错误才抛出异常
-        throw new Error(`Dabby API error: ${data.retMessage} (code: ${data.retCode})`);
+        throw new Error(`Dabby API error: ${data.message} (code: ${data.retCode})`);
       }
 
-      const resCode = data.authData.resCode;
-      const authObject = data.authData.authObject;
-
-      if (resCode === 0) {
-        return { status: "verified", authObject };
+      if (data.data.authSuccess) {
+        return { status: "verified", authObject: data.data.authResult };
       }
 
-      return { status: "failed", error: `认证失败 (resCode: ${resCode})` };
+      return { status: "failed", error: data.data.message || "认证失败" };
     } catch (error: any) {
       console.error(`[mfa-auth] Failed to get auth result: ${error.message}`);
-      // Don't throw here, return error status so polling can continue or fail gracefully
       return { status: "failed", error: error.message };
     }
   }

@@ -9,7 +9,7 @@ export interface AuthSession {
   timestamp: number;
   originalContext: PendingAuthContext;
   certToken?: string;
-  qrcodeContent?: string;
+  qrCodeUrl?: string;
   expireTimeMs?: number;
   authStatus?: AuthStatus;
   metadata?: Record<string, unknown>;
@@ -35,7 +35,6 @@ export interface PendingAuthContext {
 export interface MfaConfig {
   timeout: number;
   verificationDuration: number;
-  port: number;
   domain?: string;
   debug: boolean;
   sensitiveKeywords: string[];
@@ -58,7 +57,6 @@ export interface AuthMethodProvider {
   initialize(session: AuthSession): Promise<void>;
   verify(sessionId: string, userInput?: string): Promise<AuthResult>;
   cleanup(sessionId: string): void;
-  generateAuthPage(session: AuthSession, authUrl: string): Promise<string>;
 }
 
 export interface AuthResult {
@@ -68,51 +66,30 @@ export interface AuthResult {
 }
 
 export interface DabbyConfig {
-  clientId: string;
-  clientSecret: string;
+  apiKey: string;
   apiBaseUrl: string;
-  tokenCacheDuration: number;
   pollInterval: number;
 }
 
-export interface DabbyAccessTokenResponse {
-  accessToken: string;
-  apiVersion: string;
-  expireSeconds: number;
+export interface DabbyVerifyCodeResponse {
   retCode: number;
   retMessage: string;
-  timestamp: number;
-}
-
-export interface DabbyQrCodeResponse {
-  apiVersion: string;
-  retCode: number;
-  retMessage: string;
-  tokenInfo: {
-    authType: string;
+  message?: string;
+  data: {
     certToken: string;
-    createdAt: string;
-    expireAt: string;
-    expireTimeMs: number;
-    qrcodeContent: string;
-    timestamp: number;
+    qrCodeUrl: string;
   };
 }
 
-export interface DabbyAuthResultResponse {
-  apiVersion: string;
-  authData: {
-    authMode: number;
-    authObject: {
+export interface DabbyCheckAuthStatusResponse {
+  retCode: number;
+  message: string;
+  data: {
+    authSuccess: boolean;
+    authResult: {
       idNum: string;
       fullName: string;
     };
-    authType: string;
-    portrait: string;
-    resCode: number;
-    resStr: string;
+    message: string;
   };
-  authInfo: Record<string, unknown>;
-  retCode: number;
-  retMessage: string;
 }

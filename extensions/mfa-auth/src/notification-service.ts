@@ -172,8 +172,7 @@ class NotificationService {
               ),
             );
           }
-        } catch (e) {
-        }
+        } catch (e) {}
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,29 +204,35 @@ class NotificationService {
         : undefined;
     const sessionsRaw = Array.isArray(resultObject?.sessions) ? resultObject.sessions : [];
     const webchatRows = sessionsRaw
-      .map((row) =>
-        row && typeof row === "object" ? (row as Record<string, unknown>) : undefined,
-      )
+      .map((row) => (row && typeof row === "object" ? (row as Record<string, unknown>) : undefined))
       .filter((row): row is Record<string, unknown> => Boolean(row))
       .filter((row) => {
-        const ch = String(row.channel ?? "").trim().toLowerCase();
+        const ch = String(row.channel ?? "")
+          .trim()
+          .toLowerCase();
         const dc = row.deliveryContext as Record<string, unknown> | undefined;
-        const dcChannel = String(dc?.channel ?? "").trim().toLowerCase();
+        const dcChannel = String(dc?.channel ?? "")
+          .trim()
+          .toLowerCase();
         return ch === "webchat" || ch === "web" || dcChannel === "webchat" || dcChannel === "web";
       });
 
     const exactRows = webchatRows.filter((row) => {
       const dc = row.deliveryContext as Record<string, unknown> | undefined;
-      const peer = String(dc?.to ?? row.lastTo ?? "").trim().toLowerCase();
+      const peer = String(dc?.to ?? row.lastTo ?? "")
+        .trim()
+        .toLowerCase();
       return peer.length > 0 && peer === normalizedTarget;
     });
     const fallbackRows = webchatRows.filter((row) => !exactRows.includes(row));
-    
+
     // Fuzzy match: include any webchat session that contains the userId in its key
     const fuzzyRows = webchatRows.filter((row) => {
       const key = String(row.key ?? "").toLowerCase();
       // Ensure we don't duplicate rows already found
-      return key.includes(normalizedTarget) && !exactRows.includes(row) && !fallbackRows.includes(row);
+      return (
+        key.includes(normalizedTarget) && !exactRows.includes(row) && !fallbackRows.includes(row)
+      );
     });
 
     const sortByUpdatedAtDesc = (a: Record<string, unknown>, b: Record<string, unknown>) => {
@@ -302,9 +307,9 @@ class NotificationService {
 
       // Simplified assertion
       if (response.code !== 0) {
-         throw new Error(`Feishu API error ${response.code}: ${response.msg}`);
+        throw new Error(`Feishu API error ${response.code}: ${response.msg}`);
       }
-      
+
       const messageId = response.data?.message_id || "unknown";
       console.log(`[mfa-auth] Feishu message sent: ${messageId} to ${to}`);
     } catch (error) {
