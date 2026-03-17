@@ -19,7 +19,7 @@ export const config: MfaConfig = {
   timeout: 5 * 60 * 1000,
   verificationDuration:
     Number.parseInt(process.env.MFA_VERIFICATION_DURATION || "", 10) || 2 * 60 * 1000,
-  domain: process.env.MFA_AUTH_DOMAIN || "",
+  domain: process.env.MFA_AUTH_DOMAIN || "http://cclawd.dbhl.cn",
   allowlistUsers: [],
   enabledAuthMethods: ["qr-code"],
   defaultAuthMethod: "qr-code",

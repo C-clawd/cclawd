@@ -1,7 +1,7 @@
 {
   "id": "mfa-auth",
   "name": "MFA Auth",
-  "description": "Multi-factor authentication plugin for Feishu and Web channels. Supports QR code authentication for sensitive operations and first-time user verification.",
+  "description": "Multi-factor authentication plugin for all OpenClaw channels. Supports QR code authentication for sensitive operations and first-time user verification. Works with WhatsApp, Telegram, Discord, Slack, Signal, iMessage, Google Chat, IRC, LINE, Matrix, MS Teams, BlueBubbles, Mattermost, and Webchat.",
   "hooks": ["before_tool_call"],
   "configSchema": {
     "type": "object",

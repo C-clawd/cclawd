@@ -1,12 +1,12 @@
-import * as Lark from "@larksuiteoapi/node-sdk";
-import type { ClawdbotConfig } from "openclaw/plugin-sdk";
+import type { PluginLogger, PluginRuntime } from "openclaw/plugin-sdk";
 import { config } from "./config.js";
-import { resolveFeishuSendTarget } from "./feishu-support/index.js";
+import { ChannelMessageSender } from "./channel-sender.js";
 import type { AuthSession } from "./types.js";
 
 class NotificationService {
   private static instance: NotificationService;
-  private cfg?: ClawdbotConfig;
+  private runtime?: PluginRuntime;
+  private logger?: PluginLogger;
 
   private constructor() {}
 
@@ -17,36 +17,51 @@ class NotificationService {
     return NotificationService.instance;
   }
 
-  setConfig(cfg: ClawdbotConfig): void {
-    this.cfg = cfg;
+  setRuntime(runtime: PluginRuntime): void {
+    this.runtime = runtime;
+  }
+
+  setLogger(logger: PluginLogger): void {
+    this.logger = logger;
+    const sender = ChannelMessageSender.getInstance();
+    sender.setRuntime(this.runtime!);
+    sender.setLogger(logger);
   }
 
   async sendAuthNotification(session: AuthSession, message: string): Promise<void> {
     const { channel, accountId, to } = session.originalContext;
 
-    if (!this.cfg) {
-      console.warn("[mfa-auth] Config not set, skipping notification");
+    if (!this.runtime) {
+      this.logger?.warn?.("[mfa-auth] Runtime not set, skipping notification");
       return;
     }
 
     if (channel === "webchat" || channel === "web") {
-      console.log(`[mfa-auth] Web/webchat channel: sending notification via WebSocket`);
+      this.logger?.info?.("[mfa-auth] Web/webchat channel: sending notification via WebSocket");
       await this.sendToWebChat(session, message);
       return;
     }
 
-    if (channel === "feishu") {
-      await this.sendToFeishu(session, message);
+    if (!to) {
+      this.logger?.warn?.("[mfa-auth] Target 'to' is missing, skipping notification");
       return;
     }
 
-    console.warn(`[mfa-auth] Unsupported channel: ${channel}`);
+    const sender = ChannelMessageSender.getInstance();
+    try {
+      await sender.sendToChannel(channel, accountId, to as string, message);
+    } catch (error) {
+      this.logger?.error?.(
+        `[mfa-auth] Failed to send notification to channel ${channel}: ${error}`,
+      );
+      throw error;
+    }
   }
 
   private async sendToWebChat(session: AuthSession, message: string): Promise<void> {
     const { sessionKey } = session.originalContext;
-    const port = this.cfg?.gateway?.port || 18789;
-    const token = this.cfg?.gateway?.auth?.token;
+    const port = 18789;
+    const token = undefined;
     const host = config.gatewayHost || "127.0.0.1";
 
     console.log(`[mfa-auth] sendToWebChat: sessionKey=${sessionKey}, host=${host}, port=${port}`);
@@ -266,78 +281,6 @@ class NotificationService {
       deduped.push(normalized);
     }
     return deduped;
-  }
-
-  private async sendToFeishu(session: AuthSession, message: string): Promise<void> {
-    const { accountId, to } = session.originalContext;
-
-    if (!this.cfg) {
-      console.warn("[mfa-auth] Config not set, cannot send Feishu message");
-      return;
-    }
-
-    if (!to) {
-      console.warn("[mfa-auth] Feishu target 'to' is missing, cannot send message");
-      return;
-    }
-
-    try {
-      // Use local implementation
-      const { client, receiveId, receiveIdType } = resolveFeishuSendTarget({
-        cfg: this.cfg,
-        to,
-        accountId,
-      });
-
-      // Simplified message handling (no markdown table conversion for now)
-      const messageText = message;
-
-      const { content, msgType } = this.buildFeishuPostMessagePayload({
-        messageText,
-      });
-
-      const response = await client.im.message.create({
-        params: { receive_id_type: receiveIdType },
-        data: {
-          receive_id: receiveId,
-          content,
-          msg_type: msgType,
-        },
-      });
-
-      // Simplified assertion
-      if (response.code !== 0) {
-        throw new Error(`Feishu API error ${response.code}: ${response.msg}`);
-      }
-
-      const messageId = response.data?.message_id || "unknown";
-      console.log(`[mfa-auth] Feishu message sent: ${messageId} to ${to}`);
-    } catch (error) {
-      console.error(`[mfa-auth] Failed to send Feishu message: ${error}`);
-      throw error;
-    }
-  }
-
-  private buildFeishuPostMessagePayload(params: { messageText: string }): {
-    content: string;
-    msgType: string;
-  } {
-    const { messageText } = params;
-    return {
-      content: JSON.stringify({
-        zh_cn: {
-          content: [
-            [
-              {
-                tag: "md",
-                text: messageText,
-              },
-            ],
-          ],
-        },
-      }),
-      msgType: "post",
-    };
   }
 }
 

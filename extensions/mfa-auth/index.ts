@@ -44,7 +44,8 @@ export default function register(api: OpenClawPluginApi) {
   console.log("[mfa-auth] Plugin registration started");
   authManager.registerProvider(qrCodeAuthProvider);
 
-  notificationService.setConfig(api.config);
+  notificationService.setRuntime(api.runtime);
+  notificationService.setLogger(api.logger);
 
   setNotifyCallback(async (session: AuthSession) => {
     api.logger.info(`[mfa-auth] User ${session.userId} verified`);
@@ -275,30 +276,24 @@ export default function register(api: OpenClawPluginApi) {
     }
 
     if (parsedChannel && parsedChannel !== "web") {
-      if (parsedChannel !== "feishu") {
-        api.logger.warn(
-          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
-        );
-      } else {
-        const messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
+      const messageText = `🔐 该操作需要二次认证\n\n检测到敏感操作: ${preview}\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟\n\n验证成功后，请回复"确认"或者重新发送之前的命令以继续执行。`;
 
-        await sendAuthMessage(
-          parsedChannel,
-          parsedAccountId,
-          parsedTo || userId,
-          messageText,
-          userId,
-        );
+      await sendAuthMessage(
+        parsedChannel,
+        parsedAccountId,
+        parsedTo || userId,
+        messageText,
+        userId,
+      );
 
-        startPollingForAuth(api, userId, session.sessionId, {
-          triggerType: "sensitive_operation",
-          isReauth: false,
-          channel: parsedChannel,
-          accountId: parsedAccountId,
-          to: parsedTo,
-          sessionKey: ctx.sessionKey || "",
-        });
-      }
+      startPollingForAuth(api, userId, session.sessionId, {
+        triggerType: "sensitive_operation",
+        isReauth: false,
+        channel: parsedChannel,
+        accountId: parsedAccountId,
+        to: parsedTo,
+        sessionKey: ctx.sessionKey || "",
+      });
     }
 
     authManager.registerPendingExecution(userId, session.sessionId);
@@ -433,31 +428,25 @@ export default function register(api: OpenClawPluginApi) {
     }
 
     if (parsedChannel && parsedChannel !== "web") {
-      if (parsedChannel !== "feishu") {
-        api.logger.warn(
-          `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
-        );
-      } else {
-        const messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+      const messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
 
-        await sendAuthMessage(
-          parsedChannel,
-          parsedAccountId,
-          parsedTo || userId,
-          messageText,
-          userId,
-          sessionKey,
-        );
+      await sendAuthMessage(
+        parsedChannel,
+        parsedAccountId,
+        parsedTo || userId,
+        messageText,
+        userId,
+        sessionKey,
+      );
 
-        startPollingForAuth(api, userId, session.sessionId, {
-          triggerType: "first_message",
-          isReauth: false,
-          channel: parsedChannel,
-          accountId: parsedAccountId,
-          to: parsedTo,
-          sessionKey: sessionKey,
-        });
-      }
+      startPollingForAuth(api, userId, session.sessionId, {
+        triggerType: "first_message",
+        isReauth: false,
+        channel: parsedChannel,
+        accountId: parsedAccountId,
+        to: parsedTo,
+        sessionKey: sessionKey,
+      });
     }
   });
 
@@ -551,8 +540,8 @@ export default function register(api: OpenClawPluginApi) {
         }
       }
 
-      if (!parsedChannel || parsedChannel !== "feishu") {
-        api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
+      if (!parsedChannel || parsedChannel === "web") {
+        api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported for reauth`);
         return { text: "❌ 当前渠道不支持认证。" };
       }
 
