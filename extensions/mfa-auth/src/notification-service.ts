@@ -159,7 +159,11 @@ class NotificationService {
               return;
             }
             const errMsg = String(response?.error?.message ?? "").toLowerCase();
-            const shouldTryNext = errMsg.includes("session not found");
+            const shouldTryNext =
+              errMsg.includes("session not found") ||
+              errMsg.includes("transcript file not found") ||
+              errMsg.includes("failed to write transcript") ||
+              errMsg.includes("unavailable");
             if (shouldTryNext && injectIndex + 1 < candidateSessionKeys.length) {
               injectIndex += 1;
               sendInject(candidateSessionKeys[injectIndex]);

@@ -482,11 +482,21 @@ export default function register(api: OpenClawPluginApi) {
         `[mfa-auth] Parsed: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
       );
 
-      // For webchat, use userId as sessionKey
+      const ctxAny = ctx as Record<string, unknown>;
+      const contextSessionKey =
+        typeof ctxAny.sessionKey === "string" && ctxAny.sessionKey.trim().length > 0
+          ? ctxAny.sessionKey.trim()
+          : typeof ctxAny.conversationId === "string" && ctxAny.conversationId.trim().length > 0
+            ? ctxAny.conversationId.trim()
+            : "";
+
+      // Prefer real runtime session key from context to avoid injecting into
+      // synthetic IDs like "gateway-client" that have no transcript file.
       const sessionKey =
-        parsedChannel === "webchat" || parsedChannel === "web"
-          ? userId
-          : `${parsedChannel}:${parsedAccountId}:${userId}`;
+        contextSessionKey ||
+        (parsedChannel === "webchat" || parsedChannel === "web"
+          ? `${parsedChannel}:${parsedAccountId}:${parsedTo || userId}`
+          : `${parsedChannel}:${parsedAccountId}:${userId}`);
 
       api.logger.info(`[mfa-auth] Using sessionKey for reauth: ${sessionKey}`);
 
