@@ -275,7 +275,7 @@ export default function register(api: OpenClawPluginApi) {
     }
 
     if (parsedChannel && parsedChannel !== "web") {
-      if (parsedChannel !== "feishu") {
+      if (false) {
         api.logger.warn(
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
@@ -433,7 +433,7 @@ export default function register(api: OpenClawPluginApi) {
     }
 
     if (parsedChannel && parsedChannel !== "web") {
-      if (parsedChannel !== "feishu") {
+      if (false) {
         api.logger.warn(
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
@@ -551,7 +551,7 @@ export default function register(api: OpenClawPluginApi) {
         }
       }
 
-      if (!parsedChannel || parsedChannel !== "feishu") {
+      if (!parsedChannel) {
         api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
         return { text: "❌ 当前渠道不支持认证。" };
       }

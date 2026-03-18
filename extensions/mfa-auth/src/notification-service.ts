@@ -29,8 +29,8 @@ class NotificationService {
       return;
     }
 
-    if (channel === "webchat" || channel === "web") {
-      console.log(`[mfa-auth] Web/webchat channel: sending notification via WebSocket`);
+    if (channel === "webchat" || channel === "web" || channel === "main" || channel === "desktop") {
+      console.log(`[mfa-auth] ${channel} channel: sending notification via WebSocket`);
       await this.sendToWebChat(session, message);
       return;
     }
