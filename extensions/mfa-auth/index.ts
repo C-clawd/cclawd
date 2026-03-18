@@ -176,16 +176,19 @@ export default function register(api: OpenClawPluginApi) {
         const targetSessionKey =
           parsedChannel === "webchat" || parsedChannel === "web" ? userId : sessionKey;
 
-        sendAuthMessage(
+        try {
+          await sendAuthMessage(
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
           "✅ 二次认证成功，请重新发送之前的命令（或回复'确认'）即可执行。",
           userId,
-          targetSessionKey,
-        ).catch((err) =>
-          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`),
-        );
+            targetSessionKey,
+          );
+        } catch (err) {
+          authManager.restoreNotification(userId, notificationInfo);
+          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`);
+        }
       }
 
       return undefined;
@@ -353,16 +356,19 @@ export default function register(api: OpenClawPluginApi) {
           ? "✅ 重新认证成功，请继续对话。"
           : "✅ 首次认证成功，请继续对话。";
 
-        sendAuthMessage(
+        try {
+          await sendAuthMessage(
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
           messageText,
           userId,
           sessionKey,
-        ).catch((err) =>
-          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`),
-        );
+          );
+        } catch (err) {
+          authManager.restoreNotification(userId, notificationInfo);
+          api.logger.error(`[mfa-auth] Failed to send success notification: ${err}`);
+        }
       }
 
       return;
@@ -666,16 +672,19 @@ function startPollingForAuth(
             ? "✅ 首次认证成功，请继续对话。"
             : "✅ 二次认证成功，请重新发送之前的命令（或回复'确认'）即可执行。";
 
-        sendAuthMessage(
+        try {
+          await sendAuthMessage(
           context.channel,
           context.accountId,
           context.to || userId,
           messageText,
           userId,
           context.sessionKey,
-        ).catch((err) =>
-          api.logger.error(`[mfa-auth] Failed to send success notification from polling: ${err}`),
-        );
+          );
+        } catch (err) {
+          authManager.restoreNotification(userId, notificationInfo);
+          api.logger.error(`[mfa-auth] Failed to send success notification from polling: ${err}`);
+        }
       }
       return;
     }

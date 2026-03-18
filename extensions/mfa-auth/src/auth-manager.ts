@@ -252,6 +252,10 @@ export class AuthManager {
     return null;
   }
 
+  restoreNotification(userId: string, info: NotificationInfo): void {
+    this.pendingNotifications.set(userId, info);
+  }
+
   isUserVerified(userId: string): boolean {
     return this.isUserVerifiedForSensitiveOps(userId);
   }

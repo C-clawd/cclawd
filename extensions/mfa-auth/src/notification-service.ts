@@ -22,34 +22,47 @@ class NotificationService {
   }
 
   async sendAuthNotification(session: AuthSession, message: string): Promise<void> {
-    const { channel, accountId, to } = session.originalContext;
+    const { channel } = session.originalContext;
 
     if (!this.cfg) {
       console.warn("[mfa-auth] Config not set, skipping notification");
       return;
     }
 
-    if (channel === "webchat" || channel === "web" || channel === "main" || channel === "desktop") {
-      console.log(`[mfa-auth] ${channel} channel: sending notification via WebSocket`);
-      await this.sendToWebChat(session, message);
+    const normalizedChannel = String(channel || "")
+      .trim()
+      .toLowerCase();
+
+    if (normalizedChannel === "feishu") {
+      try {
+        await this.sendToFeishu(session, message);
+      } catch (error) {
+        // Fallback to gateway injection to avoid silent message loss when channel API
+        // permissions are temporarily missing.
+        console.warn(
+          `[mfa-auth] Feishu direct send failed, falling back to gateway inject: ${String(error)}`,
+        );
+        await this.sendViaGatewayInject(session, message, normalizedChannel);
+      }
       return;
     }
 
-    if (channel === "feishu") {
-      await this.sendToFeishu(session, message);
-      return;
-    }
-
-    console.warn(`[mfa-auth] Unsupported channel: ${channel}`);
+    await this.sendViaGatewayInject(session, message, normalizedChannel);
   }
 
-  private async sendToWebChat(session: AuthSession, message: string): Promise<void> {
-    const { sessionKey } = session.originalContext;
+  private async sendViaGatewayInject(
+    session: AuthSession,
+    message: string,
+    channelHint?: string,
+  ): Promise<void> {
+    const { sessionKey, accountId } = session.originalContext;
     const port = this.cfg?.gateway?.port || 18789;
     const token = this.cfg?.gateway?.auth?.token;
     const host = config.gatewayHost || "127.0.0.1";
 
-    console.log(`[mfa-auth] sendToWebChat: sessionKey=${sessionKey}, host=${host}, port=${port}`);
+    console.log(
+      `[mfa-auth] sendViaGatewayInject: channel=${channelHint || "unknown"}, sessionKey=${sessionKey}, host=${host}, port=${port}`,
+    );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wsModule = await import("ws");
@@ -133,7 +146,9 @@ class NotificationService {
               reject(new Error(`sessions.list failed: ${JSON.stringify(response.error)}`));
               return;
             }
-            candidateSessionKeys = this.resolveWebchatSessionCandidates({
+            candidateSessionKeys = this.resolveSessionCandidates({
+              channelHint,
+              accountId,
               requestedSessionKey: sessionKey,
               userId: session.userId,
               targetTo: session.originalContext.to,
@@ -141,11 +156,11 @@ class NotificationService {
             });
             if (candidateSessionKeys.length === 0) {
               ws.close();
-              reject(new Error("No candidate webchat sessions found"));
+              reject(new Error("No candidate sessions found for gateway inject"));
               return;
             }
             console.log(
-              `[mfa-auth] candidate webchat sessions: ${candidateSessionKeys.join(", ")}`,
+              `[mfa-auth] candidate sessions (${channelHint || "any"}): ${candidateSessionKeys.join(", ")}`,
             );
             injectIndex = 0;
             sendInject(candidateSessionKeys[injectIndex]);
@@ -193,12 +208,20 @@ class NotificationService {
     });
   }
 
-  private resolveWebchatSessionCandidates(params: {
+  private resolveSessionCandidates(params: {
+    channelHint?: string;
+    accountId?: string;
     requestedSessionKey?: string;
     userId: string;
     targetTo?: string;
     sessionsListResult: unknown;
   }): string[] {
+    const normalizedChannelHint = String(params.channelHint || "")
+      .trim()
+      .toLowerCase();
+    const normalizedAccountId = String(params.accountId || "")
+      .trim()
+      .toLowerCase();
     const normalizedTarget = String(params.targetTo || params.userId || "")
       .trim()
       .toLowerCase();
@@ -207,7 +230,7 @@ class NotificationService {
         ? (params.sessionsListResult as Record<string, unknown>)
         : undefined;
     const sessionsRaw = Array.isArray(resultObject?.sessions) ? resultObject.sessions : [];
-    const webchatRows = sessionsRaw
+    const matchingRows = sessionsRaw
       .map((row) => (row && typeof row === "object" ? (row as Record<string, unknown>) : undefined))
       .filter((row): row is Record<string, unknown> => Boolean(row))
       .filter((row) => {
@@ -218,20 +241,40 @@ class NotificationService {
         const dcChannel = String(dc?.channel ?? "")
           .trim()
           .toLowerCase();
-        return ch === "webchat" || ch === "web" || dcChannel === "webchat" || dcChannel === "web";
+
+        if (!normalizedChannelHint) {
+          return true;
+        }
+
+        if (normalizedChannelHint === "web" || normalizedChannelHint === "webchat") {
+          return ch === "webchat" || ch === "web" || dcChannel === "webchat" || dcChannel === "web";
+        }
+
+        return ch === normalizedChannelHint || dcChannel === normalizedChannelHint;
+      })
+      .filter((row) => {
+        if (!normalizedAccountId) return true;
+        const dc = row.deliveryContext as Record<string, unknown> | undefined;
+        const rowAccount = String(row.accountId ?? "")
+          .trim()
+          .toLowerCase();
+        const dcAccount = String(dc?.accountId ?? "")
+          .trim()
+          .toLowerCase();
+        return rowAccount === normalizedAccountId || dcAccount === normalizedAccountId;
       });
 
-    const exactRows = webchatRows.filter((row) => {
+    const exactRows = matchingRows.filter((row) => {
       const dc = row.deliveryContext as Record<string, unknown> | undefined;
       const peer = String(dc?.to ?? row.lastTo ?? "")
         .trim()
         .toLowerCase();
       return peer.length > 0 && peer === normalizedTarget;
     });
-    const fallbackRows = webchatRows.filter((row) => !exactRows.includes(row));
+    const fallbackRows = matchingRows.filter((row) => !exactRows.includes(row));
 
-    // Fuzzy match: include any webchat session that contains the userId in its key
-    const fuzzyRows = webchatRows.filter((row) => {
+    // Fuzzy match: include any session whose key contains the target id.
+    const fuzzyRows = matchingRows.filter((row) => {
       const key = String(row.key ?? "").toLowerCase();
       // Ensure we don't duplicate rows already found
       return (
@@ -253,9 +296,10 @@ class NotificationService {
       ...exactRows.map((row) => String(row.key ?? "").trim()),
       ...fallbackRows.map((row) => String(row.key ?? "").trim()),
       ...fuzzyRows.map((row) => String(row.key ?? "").trim()),
-      // Add standard webchat patterns
+      // Common fallback patterns.
       `agent:main:${normalizedTarget}`,
-      `webchat:${normalizedTarget}`,
+      `${normalizedChannelHint}:${normalizedTarget}`,
+      normalizedAccountId ? `${normalizedChannelHint}:${normalizedAccountId}:${normalizedTarget}` : "",
       normalizedTarget,
       "main",
     ];

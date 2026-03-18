@@ -1,6 +1,6 @@
 {
     "name": "cclawd",
-    "version": "1.0.3",
+    "version": "1.0.5",
     "description": "Multi-channel AI gateway with extensible messaging integrations",
     "keywords": [],
     "homepage": "https://github.com/openclaw/openclaw#readme",
