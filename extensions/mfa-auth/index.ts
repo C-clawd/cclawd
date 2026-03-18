@@ -71,9 +71,15 @@ export default function register(api: OpenClawPluginApi) {
       }
 
       const channel = session.originalContext.channel;
-      const sessionKey =
-        session.originalContext.sessionKey ||
-        `${channel}:${session.originalContext.accountId || ""}:${session.userId}`;
+      let sessionKey = session.originalContext.sessionKey;
+
+      if (!sessionKey) {
+        if (channel === "webchat" || channel === "web") {
+          sessionKey = "main";
+        } else {
+          sessionKey = `${channel}:${session.originalContext.accountId || ""}:${session.userId}`;
+        }
+      }
 
       api.logger.info(`[mfa-auth] Sending notification to session: ${sessionKey}`);
 
@@ -230,9 +236,9 @@ export default function register(api: OpenClawPluginApi) {
 
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
-    // For webchat, use userId as sessionKey instead of agent:main:<userId>
+    // For webchat, use "main" as sessionKey
     if (parsedChannel === "webchat" || parsedChannel === "web") {
-      const sessionKeyForWebchat = userId;
+      const sessionKeyForWebchat = "main";
 
       try {
         await sendAuthMessage(
@@ -313,6 +319,10 @@ export default function register(api: OpenClawPluginApi) {
     await authManager.ensureInitialized();
 
     api.logger.info(
+      `[mfa-auth] DEBUG message_received: event=${JSON.stringify(event)}, ctx=${JSON.stringify(ctx)}`
+    );
+
+    api.logger.info(
       `[mfa-auth] First message auth check: config.requireAuthOnFirstMessage=${config.requireAuthOnFirstMessage}`,
     );
 
@@ -329,7 +339,21 @@ export default function register(api: OpenClawPluginApi) {
       return;
     }
 
-    const userId = event.from || ctx.conversationId || "unknown";
+    const parsedChannel = ctx.channelId;
+    const parsedAccountId = ctx.accountId || "";
+    const parsedTo = event.from;
+
+    // Try to resolve a meaningful userId
+    let userId = event.from;
+    if (!userId || userId === "unknown") {
+      // @ts-expect-error fallback for untyped properties
+      userId = ctx.senderId || ctx.SenderId || ctx.conversationId || "unknown";
+    }
+
+    // If still unknown and it's webchat, treat it as a guest user but allow flow
+    if (userId === "unknown" && (parsedChannel === "webchat" || parsedChannel === "web")) {
+        api.logger.warn(`[mfa-auth] Could not resolve userId from event, defaulting to 'unknown'`);
+    }
 
     if (authManager.isUserVerifiedForFirstMessage(userId)) {
       api.logger.info(`[mfa-auth] User ${userId} already verified for first message`);
@@ -343,7 +367,7 @@ export default function register(api: OpenClawPluginApi) {
         let sessionKey = ctx.conversationId;
         if (!sessionKey) {
           if (parsedChannel === "webchat" || parsedChannel === "web") {
-            sessionKey = userId;
+            sessionKey = "main";
           } else {
             sessionKey = `${parsedChannel}:${parsedAccountId}:${event.from}`;
           }
@@ -373,18 +397,13 @@ export default function register(api: OpenClawPluginApi) {
       `[mfa-auth] Debug Context: channelId=${ctx.channelId}, conversationId=${ctx.conversationId}, accountId=${ctx.accountId}, from=${event.from}`,
     );
 
-    const parsedChannel = ctx.channelId;
-    const parsedAccountId = ctx.accountId || "";
-    const parsedTo = event.from;
-
     // Use conversationId as sessionKey if available
-    // For webchat, try to use userId directly as sessionKey (common pattern)
+    // For webchat, use "main" as the default sessionKey
     let sessionKey = ctx.conversationId;
     if (!sessionKey) {
       if (parsedChannel === "webchat" || parsedChannel === "web") {
-        // For webchat, use userId as sessionKey (this is the most common pattern)
-        sessionKey = userId;
-        api.logger.info(`[mfa-auth] Using webchat sessionKey (userId): ${sessionKey}`);
+        sessionKey = "main";
+        api.logger.info(`[mfa-auth] Using webchat sessionKey (main): ${sessionKey}`);
       } else {
         // Fallback to channel:accountId:from format
         sessionKey = `${parsedChannel}:${parsedAccountId}:${event.from}`;
@@ -414,11 +433,24 @@ export default function register(api: OpenClawPluginApi) {
     api.logger.info(`[mfa-auth] Blocking first message from ${userId}`);
 
     if (parsedChannel === "webchat" || parsedChannel === "web") {
-      pendingAuthUsers.add(userId);
-      authManager.setSessionMetadata(session.sessionId, {
-        qrCodeUrl: session.qrCodeUrl,
-        triggerType: "first_message",
-      });
+      const messageText = `🔐 首次对话需要进行认证\n\n为了您的账户安全，首次对话前需要完成身份验证。\n\n📱 请点击以下链接完成扫码认证:\n${session.qrCodeUrl}\n\n验证有效期: ${Math.floor(config.timeout / 60000)} 分钟`;
+      try {
+        await sendAuthMessage(
+          parsedChannel,
+          parsedAccountId,
+          parsedTo || userId,
+          messageText,
+          userId,
+          sessionKey,
+        );
+      } catch (error) {
+        api.logger.error(`[mfa-auth] Failed to send first-message auth link to webchat: ${String(error)}`);
+        pendingAuthUsers.add(userId);
+        authManager.setSessionMetadata(session.sessionId, {
+          qrCodeUrl: session.qrCodeUrl,
+          triggerType: "first_message",
+        });
+      }
 
       startPollingForAuth(api, userId, session.sessionId, {
         triggerType: "first_message",
@@ -426,7 +458,7 @@ export default function register(api: OpenClawPluginApi) {
         channel: parsedChannel,
         accountId: parsedAccountId,
         to: parsedTo,
-        sessionKey: userId,
+        sessionKey: sessionKey,
       });
 
       return;
@@ -482,10 +514,10 @@ export default function register(api: OpenClawPluginApi) {
         `[mfa-auth] Parsed: channel=${parsedChannel}, accountId=${parsedAccountId}, to=${parsedTo}`,
       );
 
-      // For webchat, use userId as sessionKey
+      // For webchat, use "main" as sessionKey
       const sessionKey =
         parsedChannel === "webchat" || parsedChannel === "web"
-          ? userId
+          ? "main"
           : `${parsedChannel}:${parsedAccountId}:${userId}`;
 
       api.logger.info(`[mfa-auth] Using sessionKey for reauth: ${sessionKey}`);
@@ -525,15 +557,8 @@ export default function register(api: OpenClawPluginApi) {
             isReauth: true,
           });
 
-          await sendAuthMessage(
-            parsedChannel,
-            parsedAccountId,
-            parsedTo || userId,
-            messageText,
-            userId,
-            sessionKey,
-          );
-
+          // WebChat 渠道作为命令直接返回结果最稳定，不需要额外 inject，
+          // 因为有时 inject 会发到错误的 sessionKey 导致前端不显示
           startPollingForAuth(api, userId, session.sessionId, {
             triggerType: "first_message",
             isReauth: true,
@@ -543,10 +568,9 @@ export default function register(api: OpenClawPluginApi) {
             sessionKey: sessionKey,
           });
 
-          return { text: "� 认证链接已发送，请查看最新消息。" };
+          return { text: messageText };
         } catch (error) {
-          api.logger.error(`[mfa-auth] Failed to send reauth link to webchat: ${String(error)}`);
-          // Fallback to returning text directly if push fails, though this might be less reliable if session context is lost
+          api.logger.error(`[mfa-auth] Failed to handle reauth for webchat: ${String(error)}`);
           return { text: messageText };
         }
       }

@@ -263,7 +263,9 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   if (!payload) {
     return null;
   }
+  console.log(`[chat] handleChatEvent: payload.sessionKey=${payload.sessionKey}, state.sessionKey=${state.sessionKey}`);
   if (payload.sessionKey !== state.sessionKey) {
+    console.log(`[chat] Ignoring chat event: sessionKey mismatch`);
     return null;
   }
 
