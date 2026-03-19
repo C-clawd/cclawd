@@ -1,0 +1,34 @@
+{
+  "id": "cclawd-mfa-auth",
+  "name": "Cclawd MFA Auth",
+  "version": "1.0.0",
+  "description": "MFA authentication plugin for Cclawd with multi-channel support",
+  "main": "index.ts",
+  "hooks": ["before_tool_call"],
+  "author": "",
+  "license": "MIT",
+  "keywords": [
+    "mfa",
+    "authentication",
+    "security"
+  ],
+  "config": {
+    "env": [
+      "MFA_AUTH_API_KEY",
+      "DABBY_API_BASE_URL",
+      "MFA_VERIFICATION_DURATION",
+      "MFA_FIRST_MESSAGE_AUTH_DURATION",
+      "MFA_REQUIRE_AUTH_ON_FIRST_MESSAGE",
+      "MFA_REQUIRE_AUTH_ON_SENSITIVE_OPERATION",
+      "MFA_SENSITIVE_KEYWORDS",
+      "MFA_GATEWAY_HOST",
+      "MFA_ENABLE_AUTH_NOTIFICATION",
+      "MFA_AUTH_STATE_DIR"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

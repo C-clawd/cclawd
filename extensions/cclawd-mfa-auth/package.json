@@ -1,0 +1,27 @@
+{
+  "name": "cclawd-mfa-auth",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MFA authentication plugin for Cclawd with multi-channel support",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "tsx watch index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.59.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "openclaw",
+    "mfa",
+    "authentication",
+    "plugin"
+  ],
+  "author": "",
+  "license": "MIT"
+}
