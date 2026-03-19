@@ -199,9 +199,9 @@ function buildFirstMessageChallengeText(metadata: Record<string, unknown>): stri
   const qrCodeUrl = typeof metadata.qrCodeUrl === "string" ? metadata.qrCodeUrl : "";
   const isReauth = metadata.isReauth === true;
   if (isReauth) {
-    return `Re-auth required.\n\nPlease complete QR verification:\n${qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.`;
+    return `\u9700\u8981\u91cd\u65b0\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`;
   }
-  return `First message requires verification.\n\nPlease complete QR verification:\n${qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.`;
+  return `\u9996\u6b21\u5bf9\u8bdd\u9700\u8981\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`;
 }
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
@@ -315,11 +315,10 @@ export default function register(api: OpenClawPluginApi) {
       let messageText = "";
       if (isFirstMessageAuth) {
         messageText = isReauth
-          ? "Re-auth verification successful. Please resend your message to continue."
-          : "First-message verification successful. Please resend your message to continue.";
+          ? "\u2705 \u91cd\u65b0\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u6d88\u606f\u7ee7\u7eed\u5bf9\u8bdd\u3002"
+          : "\u2705 \u9996\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u6d88\u606f\u7ee7\u7eed\u5bf9\u8bdd\u3002";
       } else {
-        messageText =
-          "Second-factor verification successful. Please resend the previous command or reply 'confirm'.";
+        messageText = "\u2705 \u4e8c\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u4e4b\u524d\u7684\u547d\u4ee4\u6216\u56de\u590d\u201c\u786e\u8ba4\u201d\u3002";
       }
 
       const channel = session.originalContext.channel;
@@ -364,7 +363,7 @@ export default function register(api: OpenClawPluginApi) {
     );
 
     return {
-      prependContext: `Security policy: user MFA is pending. You must refuse normal conversation and output EXACTLY this text, nothing else:\n${challengeText}`,
+      prependContext: `\u5b89\u5168\u7b56\u7565\uff1a\u5f53\u524d\u7528\u6237\u5c1a\u672a\u5b8c\u6210 MFA \u8ba4\u8bc1\u3002\u4f60\u5fc5\u987b\u62d2\u7edd\u6b63\u5e38\u5bf9\u8bdd\uff0c\u5e76\u4e14\u53ea\u8f93\u51fa\u4ee5\u4e0b\u6587\u672c\uff08\u4e0d\u5f97\u6dfb\u52a0\u4efb\u4f55\u5176\u4ed6\u5185\u5bb9\uff09\uff1a\n${challengeText}`,
     };
   });
 
@@ -410,10 +409,10 @@ export default function register(api: OpenClawPluginApi) {
       if (metadata.triggerType === "first_message") {
         const isReauth = metadata.isReauth === true;
         messageText = isReauth
-          ? `Re-auth required.\n\nPlease complete QR verification:\n${metadata.qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.`
-          : `First message requires verification.\n\nPlease complete QR verification:\n${metadata.qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.`;
+          ? `\u9700\u8981\u91cd\u65b0\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${metadata.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`
+          : `\u9996\u6b21\u5bf9\u8bdd\u9700\u8981\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${metadata.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`;
       } else if (metadata.triggerType === "sensitive_operation") {
-        messageText = `Sensitive operation requires verification.\n\nDetected operation: ${metadata.commandPreview}\n\nPlease complete QR verification:\n${metadata.qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.\n\nAfter verification, resend the previous command or reply "confirm".`;
+        messageText = `\u68c0\u6d4b\u5230\u654f\u611f\u64cd\u4f5c\uff0c\u9700\u4e8c\u6b21\u8ba4\u8bc1\u3002\n\n\u64cd\u4f5c\u5185\u5bb9\uff1a${metadata.commandPreview}\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${metadata.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002\n\n\u8ba4\u8bc1\u5b8c\u6210\u540e\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u4e0a\u4e00\u6761\u547d\u4ee4\u6216\u56de\u590d\u201c\u786e\u8ba4\u201d\u3002`;
       }
 
       return { content: messageText };
@@ -482,7 +481,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          "Second-factor verification successful. Please resend the previous command or reply 'confirm'.",
+          "\u2705 \u4e8c\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u4e4b\u524d\u7684\u547d\u4ee4\u6216\u56de\u590d\u201c\u786e\u8ba4\u201d\u3002",
           userId,
           targetSessionKey,
         ).catch((err) =>
@@ -521,18 +520,23 @@ export default function register(api: OpenClawPluginApi) {
       return undefined;
     }
 
+    api.logger.info(
+      `[mfa-auth] Sensitive auth session created: sessionId=${session.sessionId}, hasQrCode=${Boolean(session.qrCodeUrl)}, certToken=${session.certToken ?? "n/a"}`,
+    );
+
     api.logger.info(`[mfa-auth] Blocking sensitive tool call: ${toolName} from ${userId}`);
 
     // For webchat, use userId as sessionKey instead of agent:main:<userId>
     if (isWebchatChannel(parsedChannel)) {
       const sessionKeyForWebchat = sessionKey || userId;
+      const authChallengeText = `检测到敏感操作，需二次认证。\n\n操作内容：${preview}\n\n请点击下方链接完成扫码认证：\n${session.qrCodeUrl}\n\n认证有效期：${Math.floor(config.timeout / 60000)} 分钟。\n\n认证完成后，请重新发送上一条命令或回复“确认”。`;
 
       try {
         await sendAuthMessage(
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          `Sensitive operation requires verification.\n\nDetected operation: ${preview}\n\nPlease complete QR verification:\n${session.qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.\n\nAfter verification, resend the previous command or reply "confirm".`, 
+          authChallengeText,
           userId,
           sessionKeyForWebchat,
         );
@@ -563,9 +567,11 @@ export default function register(api: OpenClawPluginApi) {
 
       return {
         block: true,
-        blockReason: "Sensitive operation requires second-factor verification.",
+        blockReason: authChallengeText,
       };
     }
+
+    const authChallengeText = `检测到敏感操作，需二次认证。\n\n操作内容：${preview}\n\n请点击下方链接完成扫码认证：\n${session.qrCodeUrl}\n\n认证有效期：${Math.floor(config.timeout / 60000)} 分钟。\n\n认证完成后，请重新发送上一条命令或回复“确认”。`;
 
     if (parsedChannel && parsedChannel !== "web") {
       if (parsedChannel !== "feishu") {
@@ -573,13 +579,11 @@ export default function register(api: OpenClawPluginApi) {
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
       } else {
-        const messageText = `Sensitive operation requires verification.\n\nDetected operation: ${preview}\n\nPlease complete QR verification:\n${session.qrCodeUrl}\n\nValid for ${Math.floor(config.timeout / 60000)} minutes.\n\nAfter verification, resend the previous command or reply "confirm".`;
-
         await sendAuthMessage(
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          messageText,
+          authChallengeText,
           userId,
         );
 
@@ -598,7 +602,7 @@ export default function register(api: OpenClawPluginApi) {
 
     return {
       block: true,
-      blockReason: "Sensitive operation requires second-factor verification.",
+      blockReason: authChallengeText,
     };
   });
 
@@ -674,8 +678,8 @@ export default function register(api: OpenClawPluginApi) {
         }
 
         const messageText = notificationInfo.isReauth
-          ? "Re-auth verification successful. Please continue chatting."
-          : "First-message verification successful. Please continue chatting.";
+          ? "\u2705 \u91cd\u65b0\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u7ee7\u7eed\u5bf9\u8bdd\u3002"
+          : "\u2705 \u9996\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u7ee7\u7eed\u5bf9\u8bdd\u3002";
 
         sendAuthMessage(
           parsedChannel,
@@ -749,7 +753,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          `馃攼 棣栨瀵硅瘽闇€瑕佽繘琛岃璇乗n\n涓轰簡鎮ㄧ殑璐︽埛瀹夊叏锛岄娆″璇濆墠闇€瑕佸畬鎴愯韩浠介獙璇併€俓n\n馃摣 璇风偣鍑讳互涓嬮摼鎺ュ畬鎴愭壂鐮佽璇?\n${session.qrCodeUrl}\n\n楠岃瘉鏈夋晥鏈? ${Math.floor(config.timeout / 60000)} 鍒嗛挓`,
+          `\u9996\u6b21\u5bf9\u8bdd\u9700\u8981\u8ba4\u8bc1\n\n\u4e3a\u4e86\u8d26\u53f7\u5b89\u5168\uff0c\u9996\u6b21\u5bf9\u8bdd\u524d\u9700\u8981\u5b8c\u6210\u8eab\u4efd\u9a8c\u8bc1\u3002\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${session.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`,
           userId,
           sessionKey,
         );
@@ -777,7 +781,7 @@ export default function register(api: OpenClawPluginApi) {
           `[mfa-auth] Channel ${parsedChannel} not supported, skipping auth notification`,
         );
       } else {
-        const messageText = `馃攼 棣栨瀵硅瘽闇€瑕佽繘琛岃璇乗n\n涓轰簡鎮ㄧ殑璐︽埛瀹夊叏锛岄娆″璇濆墠闇€瑕佸畬鎴愯韩浠介獙璇併€俓n\n馃摫 璇风偣鍑讳互涓嬮摼鎺ュ畬鎴愭壂鐮佽璇?\n${session.qrCodeUrl}\n\n楠岃瘉鏈夋晥鏈? ${Math.floor(config.timeout / 60000)} 鍒嗛挓`;
+        const messageText = `\u9996\u6b21\u5bf9\u8bdd\u9700\u8981\u8ba4\u8bc1\n\n\u4e3a\u4e86\u8d26\u53f7\u5b89\u5168\uff0c\u9996\u6b21\u5bf9\u8bdd\u524d\u9700\u8981\u5b8c\u6210\u8eab\u4efd\u9a8c\u8bc1\u3002\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${session.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`;
 
         await sendAuthMessage(
           parsedChannel,
@@ -802,7 +806,7 @@ export default function register(api: OpenClawPluginApi) {
 
   api.registerCommand({
     name: "reauth",
-    description: "閲嶆柊杩涜棣栨瀵硅瘽璁よ瘉",
+    description: "\u91cd\u65b0\u8fdb\u884c\u9996\u6b21\u5bf9\u8bdd\u8ba4\u8bc1",
     acceptsArgs: false,
     requireAuth: false,
     handler: async (ctx) => {
@@ -853,14 +857,14 @@ export default function register(api: OpenClawPluginApi) {
 
       if (!session) {
         api.logger.error(`[mfa-auth] Failed to generate reauth session for user ${userId}`);
-        return { text: "Failed to create authentication session. Please try again later." };
+        return { text: "\u8ba4\u8bc1\u4f1a\u8bdd\u521b\u5efa\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002" };
       }
 
       api.logger.info(
         `[mfa-auth] Reauth requested by user ${userId}, session=${session.sessionId}`,
       );
 
-      const messageText = `馃攼 閲嶆柊璁よ瘉\n\n馃摫 璇风偣鍑讳互涓嬮摼鎺ュ畬鎴愭壂鐮佽璇?\n${session.qrCodeUrl}\n\n楠岃瘉鏈夋晥鏈? ${Math.floor(config.timeout / 60000)} 鍒嗛挓`;
+      const messageText = `\u9700\u8981\u91cd\u65b0\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${session.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`;
 
       // Use sendAuthMessage to ensure consistent delivery via WebSocket for WebChat
       // This will use the new robust session resolution logic
@@ -901,7 +905,7 @@ export default function register(api: OpenClawPluginApi) {
 
       if (!parsedChannel || parsedChannel !== "feishu") {
         api.logger.warn(`[mfa-auth] Channel ${parsedChannel} not supported`);
-        return { text: "Current channel does not support this authentication flow." };
+        return { text: "\u5f53\u524d\u6e20\u9053\u6682\u4e0d\u652f\u6301\u6b64\u8ba4\u8bc1\u6d41\u7a0b\u3002" };
       }
 
       try {
@@ -913,7 +917,7 @@ export default function register(api: OpenClawPluginApi) {
           parsedChannel,
           parsedAccountId,
           parsedTo || userId,
-          `馃攼 閲嶆柊璁よ瘉\n\n馃摫 璇风偣鍑讳互涓嬮摼鎺ュ畬鎴愭壂鐮佽璇?\n${session.qrCodeUrl}\n\n楠岃瘉鏈夋晥鏈? ${Math.floor(config.timeout / 60000)} 鍒嗛挓`,
+          `\u9700\u8981\u91cd\u65b0\u8ba4\u8bc1\n\n\u8bf7\u70b9\u51fb\u4e0b\u65b9\u94fe\u63a5\u5b8c\u6210\u626b\u7801\u8ba4\u8bc1\uff1a\n${session.qrCodeUrl}\n\n\u8ba4\u8bc1\u6709\u6548\u671f\uff1a${Math.floor(config.timeout / 60000)} \u5206\u949f\u3002`,
           userId,
         );
 
@@ -927,10 +931,10 @@ export default function register(api: OpenClawPluginApi) {
         });
 
         api.logger.info(`[mfa-auth] Reauth notification sent successfully`);
-        return { text: "Auth link sent. Please check new messages." };
+        return { text: "\u8ba4\u8bc1\u94fe\u63a5\u5df2\u53d1\u9001\uff0c\u8bf7\u67e5\u770b\u6700\u65b0\u6d88\u606f\u3002" };
       } catch (error) {
         api.logger.error(`[mfa-auth] Failed to send reauth notification: ${String(error)}`);
-        return { text: "Failed to send auth link. Please try again later." };
+        return { text: "\u8ba4\u8bc1\u94fe\u63a5\u53d1\u9001\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002" };
       }
     },
   });
@@ -999,10 +1003,10 @@ function startPollingForAuth(
         api.logger.info(`[mfa-auth] Polling detected verification for user ${userId}`);
 
         const messageText = notificationInfo.isReauth
-          ? "Re-auth verification successful. Please continue chatting."
+          ? "\u2705 \u91cd\u65b0\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u7ee7\u7eed\u5bf9\u8bdd\u3002"
           : notificationInfo.triggerType === "first_message"
-            ? "First-message verification successful. Please continue chatting."
-            : "Second-factor verification successful. Please resend the previous command or reply 'confirm'.";
+            ? "\u2705 \u9996\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u7ee7\u7eed\u5bf9\u8bdd\u3002"
+            : "\u2705 \u4e8c\u6b21\u8ba4\u8bc1\u6210\u529f\uff0c\u8bf7\u91cd\u65b0\u53d1\u9001\u4e4b\u524d\u7684\u547d\u4ee4\u6216\u56de\u590d\u201c\u786e\u8ba4\u201d\u3002";
 
         sendAuthMessage(
           context.channel,
