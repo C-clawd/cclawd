@@ -203,6 +203,9 @@ class NotificationService {
         ? (params.sessionsListResult as Record<string, unknown>)
         : undefined;
     const sessionsRaw = Array.isArray(resultObject?.sessions) ? resultObject.sessions : [];
+    const allRows = sessionsRaw
+      .map((row) => (row && typeof row === "object" ? (row as Record<string, unknown>) : undefined))
+      .filter((row): row is Record<string, unknown> => Boolean(row));
     const webchatRows = sessionsRaw
       .map((row) => (row && typeof row === "object" ? (row as Record<string, unknown>) : undefined))
       .filter((row): row is Record<string, unknown> => Boolean(row))
@@ -254,6 +257,8 @@ class NotificationService {
       `webchat:${normalizedTarget}`,
       normalizedTarget,
       "main",
+      "agent:main:main",
+      ...allRows.map((row) => String(row.key ?? "").trim()),
     ];
     const seen = new Set<string>();
     const deduped: string[] = [];
