@@ -2,7 +2,7 @@
   "id": "mfa-auth",
   "name": "MFA Auth",
   "description": "Multi-factor authentication plugin for Feishu and Web channels. Supports QR code authentication for sensitive operations and first-time user verification.",
-  "hooks": ["before_tool_call"],
+  "hooks": ["message_received", "message_sending", "before_tool_call"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
