@@ -66,13 +66,18 @@ export class NotificationService {
    * 发送消息到 WebChat
    */
   private async sendToWebChat(session: AuthSession, message: string): Promise<void> {
-    const { sessionKey } = session.originalContext;
+    const { sessionKey: originalSessionKey } = session.originalContext;
+    // 前端使用 agent:main:{userId} 格式的sessionKey
+    const frontendSessionKey = originalSessionKey.startsWith('agent:')
+      ? originalSessionKey
+      : `agent:main:${originalSessionKey}`;
     const port = this.cfg?.gateway?.port || 18789;
     const token = this.cfg?.gateway?.auth?.token;
     const host = config.gatewayHost || '127.0.0.1';
 
     console.log(`[cclawd-mfa-auth] [DEBUG] sendToWebChat START`);
-    console.log(`[cclawd-mfa-auth] [DEBUG] sessionKey=${sessionKey}`);
+    console.log(`[cclawd-mfa-auth] [DEBUG] originalSessionKey=${originalSessionKey}`);
+    console.log(`[cclawd-mfa-auth] [DEBUG] frontendSessionKey=${frontendSessionKey}`);
     console.log(`[cclawd-mfa-auth] [DEBUG] host=${host}, port=${port}`);
     console.log(`[cclawd-mfa-auth] [DEBUG] token=${token ? '已配置' : '未配置'}`);
     console.log(`[cclawd-mfa-auth] [DEBUG] userId=${session.userId}`);
@@ -187,7 +192,7 @@ export class NotificationService {
 
             // 解析候选会话
             candidateSessionKeys = this.resolveWebchatSessionCandidates({
-              requestedSessionKey: sessionKey,
+              requestedSessionKey: frontendSessionKey,
               userId: session.userId,
               targetTo: session.originalContext.to,
               sessionsListResult: { sessions: sessionsRaw },
