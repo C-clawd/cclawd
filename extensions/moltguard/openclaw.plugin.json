@@ -1,0 +1,49 @@
+{
+  "id": "moltguard",
+  "name": "MoltGuard",
+  "description": "Security guard for CClawed agents - OpenGuardrails protection with AI Security Gateway",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "description": "Enable MoltGuard protection"
+      },
+      "blockOnRisk": {
+        "type": "boolean",
+        "description": "Block actions when risk is detected"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "OpenGuardrails API key"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Detection timeout in milliseconds"
+      },
+      "agentName": {
+        "type": "string",
+        "description": "Agent name for registration"
+      },
+      "coreUrl": {
+        "type": "string",
+        "description": "OpenGuardrails Core URL"
+      },
+      "dashboardUrl": {
+        "type": "string",
+        "description": "Dashboard URL"
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enable Protection",
+      "help": "Turn on real-time security monitoring"
+    },
+    "blockOnRisk": {
+      "label": "Block on Risk",
+      "help": "Automatically block suspicious actions"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@cclawed/moltguard",
+  "version": "6.8.21",
+  "description": "AI agent security plugin for CClawed: prompt injection detection, PII sanitization, and monitoring dashboard",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
+  "optionalDependencies": {
+    "mysql2": "^3.11.5",
+    "pg": "^8.13.1"
+  },
+  "keywords": [
+    "cclawed",
+    "openguardrails",
+    "prompt-injection",
+    "security",
+    "ai-safety",
+    "guard",
+    "ai-security-gateway",
+    "data-sanitization",
+    "dashboard"
+  ],
+  "author": "OpenGuardrails",
+  "license": "MIT"
+}
