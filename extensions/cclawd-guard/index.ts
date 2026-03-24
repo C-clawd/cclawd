@@ -1114,13 +1114,14 @@ const openClawGuardPlugin = {
     });
 
     // Before message write: before_message_write (blocking)
-    apiAny.on("before_message_write", async (event: any, ctx: any) => {
+    apiAny.on("before_message_write", (event: any, ctx: any) => {
       const sessionKey = ctx?.sessionKey ?? "";
       const content = typeof event?.content === "string"
         ? event.content
         : JSON.stringify(event?.message ?? event?.content ?? "");
 
-      const decision = await globalEventReporter?.report(
+      // Non-blocking report (cannot await in sync hook)
+      globalEventReporter?.report(
         sessionKey,
         "before_message_write",
         {
@@ -1129,12 +1130,10 @@ const openClawGuardPlugin = {
           content: content.slice(0, 100000),
           contentLength: content.length,
         },
-        true, // blocking
+        false, // non-blocking
       );
 
-      if (decision?.block) {
-        return { block: true, blockReason: decision.reason };
-      }
+      return undefined;
     });
 
     // Compaction: before_compaction
