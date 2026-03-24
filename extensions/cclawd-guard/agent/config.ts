@@ -1,8 +1,8 @@
 /**
- * OpenGuardrails plugin configuration and credential management
+ * CClawd Guard plugin configuration and credential management
  */
 
-import type { OpenClawGuardConfig } from "./types.js";
+import type { CClawdGuardConfig } from "./types.js";
 import os from "node:os";
 import path from "node:path";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
@@ -180,7 +180,7 @@ export async function pollAccountEmail(
 // Default Configuration
 // =============================================================================
 
-export type ResolvedGuardConfig = Required<Omit<OpenClawGuardConfig, "plan">> & Pick<OpenClawGuardConfig, "plan">;
+export type ResolvedGuardConfig = Required<Omit<CClawdGuardConfig, "plan">> & Pick<CClawdGuardConfig, "plan">;
 
 export const DEFAULT_CONFIG: ResolvedGuardConfig = {
   enabled: true,
@@ -413,7 +413,7 @@ export function getProfileWatchPaths(openclawDir?: string): string[] {
   ];
 }
 
-export function resolveConfig(config?: Partial<OpenClawGuardConfig>): ResolvedGuardConfig {
+export function resolveConfig(config?: Partial<CClawdGuardConfig>): ResolvedGuardConfig {
   const plan = config?.plan;
   return {
     enabled: config?.enabled ?? DEFAULT_CONFIG.enabled,

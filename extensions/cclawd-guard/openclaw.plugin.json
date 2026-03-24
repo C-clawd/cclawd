@@ -1,7 +1,7 @@
 {
   "id": "cclawd-guard",
   "name": "CClawd Guard",
-  "description": "Security guard for CClawd agents - OpenGuardrails protection with AI Security Gateway",
+  "description": "Security guard for CClawd agents - CClawd Guard protection with AI Security Gateway",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -16,7 +16,7 @@
       },
       "apiKey": {
         "type": "string",
-        "description": "OpenGuardrails API key"
+        "description": "CClawd Guard API key"
       },
       "timeoutMs": {
         "type": "number",
@@ -28,7 +28,7 @@
       },
       "coreUrl": {
         "type": "string",
-        "description": "OpenGuardrails Core URL"
+        "description": "CClawd Guard Core URL"
       },
       "dashboardUrl": {
         "type": "string",

@@ -1,5 +1,5 @@
 /**
- * DashboardClient - SDK for communicating with OpenGuardrails Dashboard
+ * DashboardClient - SDK for communicating with CClawd Guard Dashboard
  *
  * Handles:
  * - Agent registration & heartbeat

@@ -248,7 +248,7 @@ export class BehaviorDetector {
       return {
         block: true,
         blockReason:
-          `OpenGuardrails blocked [${verdict.riskLevel}]: ${verdict.explanation} ` +
+          `CClawd Guard blocked [${verdict.riskLevel}]: ${verdict.explanation} ` +
           `(confidence: ${Math.round(verdict.confidence * 100)}%)`,
         findings: verdict.findings,
       };

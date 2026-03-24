@@ -3,7 +3,7 @@
  *
  * Supports two detection backends:
  * 1. Dashboard (preferred) - Routes through local/remote dashboard → core
- * 2. OpenGuardrails API (fallback) - Direct API call
+ * 2. CClawd Guard API (fallback) - Direct API call
  *
  * Content is always sanitized locally before being sent to any API.
  */
@@ -13,7 +13,7 @@ import type {
   AnalysisVerdict,
   Finding,
   Logger,
-  OpenGuardrailsApiResponse,
+  CClawdGuardApiResponse,
 } from "./types.js";
 import {
   DEFAULT_CORE_URL,
@@ -31,7 +31,8 @@ export type RunnerConfig = {
   timeoutMs: number;
   autoRegister: boolean;
   coreUrl: string;
-  /** Dashboard URL - when set, uses dashboard for detection */
+  /* * DashboardClient - SDK for communicating with CClawd Guard Dashboard
+ for detection */
   dashboardUrl?: string;
   /** Dashboard session token */
   dashboardSessionToken?: string;
@@ -115,7 +116,7 @@ async function runViaDashboard(
 }
 
 // =============================================================================
-// OpenGuardrails API Detection (Fallback)
+// CClawd Guard API Detection (Fallback)
 // =============================================================================
 
 async function ensureApiKey(
@@ -132,14 +133,14 @@ async function ensureApiKey(
   if (!autoRegister) {
     throw new Error(
       "No API key configured and autoRegister is disabled. " +
-      "Please set apiKey in your OpenGuardrails plugin config or enable autoRegister.",
+      "Please set apiKey in your CClawd Guard plugin config or enable autoRegister.",
     );
   }
 
-  log.info("No API key found — registering with OpenGuardrails...");
+  log.info("No API key found — registering with CClawd Guard...");
 
   try {
-    const result = await registerWithCore("openclaw-agent", "OpenClaw AI Agent", coreUrl);
+    const result = await registerWithCore("cclawd-guard-agent", "Security guard for CClawd agents", coreUrl);
     log.info("Registered with CClawd Guard. API key saved to ~/.openclaw/credentials/cclawd-guard/credentials.json");
     return result.credentials.apiKey;
   } catch (error) {
@@ -150,7 +151,7 @@ async function ensureApiKey(
   }
 }
 
-export function mapApiResponseToVerdict(apiResponse: OpenGuardrailsApiResponse): AnalysisVerdict {
+export function mapApiResponseToVerdict(apiResponse: CClawdGuardApiResponse): AnalysisVerdict {
   const verdict = apiResponse.verdict;
 
   const findings: Finding[] = (verdict.findings ?? []).map((f) => ({
@@ -191,13 +192,13 @@ async function runViaApi(
     });
 
     if (!response.ok) {
-      throw new Error(`OpenGuardrails API error: ${response.status} ${response.statusText}`);
+      throw new Error(`CClawd Guard API error: ${response.status} ${response.statusText}`);
     }
 
-    const apiResponse = (await response.json()) as OpenGuardrailsApiResponse;
+    const apiResponse = (await response.json()) as CClawdGuardApiResponse;
 
     if (!apiResponse.ok) {
-      throw new Error(`OpenGuardrails API returned error: ${apiResponse.error ?? "unknown"}`);
+      throw new Error(`CClawd Guard API returned error: ${apiResponse.error ?? "unknown"}`);
     }
 
     return mapApiResponseToVerdict(apiResponse);

@@ -32,6 +32,7 @@ export const isDev: boolean =
 // ---------------------------------------------------------------------------
 
 const DEV_CORE_URL = "http://localhost:53666";
+// Production CClawd Guard Core URL
 const PROD_CORE_URL = "https://www.openguardrails.com/core";
 
 export const envCoreUrl: string | undefined = process.env.OG_CORE_URL;

@@ -1,15 +1,15 @@
 /**
- * Type definitions for OpenGuardrails Plugin
+ * Type definitions for CClawd Guard Plugin
  */
 
 // =============================================================================
 // Configuration Types
 // =============================================================================
 
-export type OpenClawGuardConfig = {
+export type CClawdGuardConfig = {
   enabled?: boolean;
   blockOnRisk?: boolean;
-  /** sk-og-xxx API key for www.openguardrails.com/core. Auto-registered if empty. */
+  /** API key for CClawd Guard Core. Auto-registered if empty. */
   apiKey?: string;
   timeoutMs?: number;
   /** Core API URL (registration + behavior detection).
@@ -55,10 +55,10 @@ export type AnalysisVerdict = {
 };
 
 // =============================================================================
-// OpenGuardrails API Response
+// CClawd Guard API Response
 // =============================================================================
 
-export type OpenGuardrailsApiResponse = {
+export type CClawdGuardApiResponse = {
   ok: boolean;
   verdict: {
     isInjection: boolean;

@@ -36,15 +36,14 @@
   },
   "keywords": [
     "cclawd",
-    "openguardrails",
     "prompt-injection",
     "security",
     "ai-safety",
     "guard",
     "ai-security-gateway",
-    "data-sanitization",
-    "dashboard"
+    "cclawd-guard",
+    "cclawd"
   ],
-  "author": "OpenGuardrails",
+  "author": "CClawd Guard",
   "license": "MIT"
 }

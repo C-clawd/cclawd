@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * OpenGuardrails AI Security Gateway
+ * CClawd Guard AI Security Gateway
  *
  * Local HTTP proxy that intercepts LLM API calls, sanitizes sensitive data
+ * DashboardClient - SDK for communicating with CClawd Guard Dashboard
  * before sending to providers, and restores it in responses.
  * Supports Anthropic, OpenAI, and Gemini protocols.
  */

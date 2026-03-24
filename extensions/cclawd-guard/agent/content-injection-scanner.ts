@@ -253,7 +253,7 @@ const CATEGORY_TO_RISK_TYPE: Record<InjectionCategory, DetectionRiskType> = {
 // =============================================================================
 
 /**
- * Replace all injection matches in `text` with `__REDACTED_BY_OPENGUARDRAILS_DUE_TO_{riskType}__`.
+ * Replace all injection matches in `text` with `__REDACTED_BY_CCLAWD_GUARD_DUE_TO_{riskType}__`.
  * Returns the redacted text and structured findings.
  */
 export function redactContent(text: string): { redacted: string; findings: DetectionFinding[] } {
@@ -275,11 +275,22 @@ export function redactContent(text: string): { redacted: string; findings: Detec
         riskContent: matched,
         reason: `Matched injection pattern: "${entry.label}" (${entry.category})`,
       });
-      return `__REDACTED_BY_OPENGUARDRAILS_DUE_TO_${riskType}__`;
+      return `__REDACTED_BY_CCLAWD_GUARD_DUE_TO_${riskType}__`;
     });
   }
 
   return { redacted, findings };
+}
+
+/**
+ * Replace all injection markers in `text` with `__REDACTED_BY_CCLAWD_GUARD_DUE_TO_{riskType}__`.
+ */
+export function redactInjectionMarkers(text: string): string {
+  // Pattern: __REDACTED_BY_CCLAWD_GUARD_DUE_TO_...__
+  const markerRegex = /__REDACTED_BY_CCLAWD_GUARD_DUE_TO_([A-Z_]+)__/g;
+  return text.replace(markerRegex, (match, riskType) => {
+    return `__REDACTED_BY_CCLAWD_GUARD_DUE_TO_${riskType}__`;
+  });
 }
 
 // =============================================================================
