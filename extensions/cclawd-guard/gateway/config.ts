@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { GatewayConfig, ApiType } from "./types.js";
 
-const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "extensions", "moltguard", "data", "gateway.json");
+const DEFAULT_CONFIG_PATH = join(homedir(), ".openclaw", "extensions", "cclawd-guard", "data", "gateway.json");
 
 /**
  * Load gateway configuration from file or environment

@@ -1,22 +1,41 @@
 {
-  "name": "@cclawed/moltguard",
+  "name": "@openclaw/cclawd-guard",
   "version": "6.8.21",
-  "description": "AI agent security plugin for CClawed: prompt injection detection, PII sanitization, and monitoring dashboard",
+  "description": "AI agent security plugin for CClawd: prompt injection detection, PII sanitization, and monitoring dashboard",
   "type": "module",
   "openclaw": {
     "extensions": [
       "./index.ts"
-    ]
+    ],
+    "install": {
+      "npmSpec": "@openclaw/cclawd-guard",
+      "localPath": "extensions/cclawd-guard",
+      "defaultChoice": "npm"
+    },
+    "release": {
+      "publishToNpm": true
+    }
   },
   "dependencies": {
     "@libsql/client": "^0.14.0"
+  },
+  "devDependencies": {
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.22"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
   },
   "optionalDependencies": {
     "mysql2": "^3.11.5",
     "pg": "^8.13.1"
   },
   "keywords": [
-    "cclawed",
+    "cclawd",
     "openguardrails",
     "prompt-injection",
     "security",

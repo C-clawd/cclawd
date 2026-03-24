@@ -1,14 +1,14 @@
 {
-  "id": "moltguard",
-  "name": "MoltGuard",
-  "description": "Security guard for CClawed agents - OpenGuardrails protection with AI Security Gateway",
+  "id": "cclawd-guard",
+  "name": "CClawd Guard",
+  "description": "Security guard for CClawd agents - OpenGuardrails protection with AI Security Gateway",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "enabled": {
         "type": "boolean",
-        "description": "Enable MoltGuard protection"
+        "description": "Enable CClawd Guard protection"
       },
       "blockOnRisk": {
         "type": "boolean",

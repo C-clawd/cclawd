@@ -1,5 +1,5 @@
 /**
- * File I/O utilities for MoltGuard.
+ * File I/O utilities for CClawd Guard.
  *
  * Wraps file-reading operations from `node:fs` behind helper names
  * that do NOT match the scanner pattern `/readFileSync|readFile/`.

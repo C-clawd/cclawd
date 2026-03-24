@@ -8,7 +8,7 @@
  *   4. Expose /og_status, /og_upgrade, /og_config commands
  */
 
-import type { OpenClawPluginApi } from "cclawed/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { OpenClawGuardConfig, Logger } from "./agent/types.js";
 import {
   resolveConfig,
@@ -41,8 +41,8 @@ import { loadJsonSync } from "./agent/fs-utils.js";
 // Constants
 // =============================================================================
 
-const PLUGIN_ID = "moltguard";
-const PLUGIN_NAME = "MoltGuard";
+const PLUGIN_ID = "cclawd-guard";
+const PLUGIN_NAME = "CClawd Guard";
 const PLUGIN_VERSION = "6.7.0";
 const LOG_PREFIX = `[${PLUGIN_ID}]`;
 
@@ -53,7 +53,7 @@ const LOG_PREFIX = `[${PLUGIN_ID}]`;
 const DEBUG_LOG_PATH = path.join(
   openclawHome,
   "logs",
-  "moltguard-debug.log",
+  "cclawd-guard-debug.log",
 );
 
 function debugLog(msg: string): void {
@@ -294,7 +294,7 @@ function startProfileSync(log: Logger): void {
 const openClawGuardPlugin = {
   id: PLUGIN_ID,
   name: PLUGIN_NAME,
-  description: "Security guard for OpenClaw agents",
+  description: "Security guard for CClawd agents",
 
   register(api: OpenClawPluginApi) {
     const log = createLogger(api.logger);
@@ -386,7 +386,7 @@ const openClawGuardPlugin = {
           debugLog(`registerWithCore(${config.agentName}, coreUrl=${config.coreUrl})`);
           registerWithCore(
             config.agentName,
-            "OpenClaw AI Agent secured by OpenGuardrails",
+            "OpenClaw AI Agent secured by CClawd Guard",
             config.coreUrl,
           )
             .then((result) => {
@@ -458,7 +458,7 @@ const openClawGuardPlugin = {
           if (token) {
             debugLog(`initPersonalDashboard: connecting to existing dashboard on port ${DASHBOARD_PORT}`);
             initDashboardClient(token, `http://localhost:${DASHBOARD_PORT}`);
-            log.info(`Connected to existing OpenGuardrails dashboard at http://localhost:${DASHBOARD_PORT}`);
+            log.info(`Connected to existing CClawd Guard dashboard at http://localhost:${DASHBOARD_PORT}`);
           } else {
             debugLog("initPersonalDashboard: dashboard running but no token found");
           }
@@ -484,7 +484,7 @@ const openClawGuardPlugin = {
 
     /** Load dashboard session token from file */
     function loadDashboardToken(): string | null {
-      const tokenFile = path.join(openclawHome, "credentials", "moltguard", "dashboard-session-token");
+      const tokenFile = path.join(openclawHome, "credentials", "cclawd-guard", "dashboard-session-token");
       try {
         if (fs.existsSync(tokenFile)) {
           const data = JSON.parse(fs.readFileSync(tokenFile, "utf-8"));
@@ -515,7 +515,7 @@ const openClawGuardPlugin = {
       globalDashboardClient
         .registerAgent({
           name: config.agentName,
-          description: "OpenClaw AI Agent secured by OpenGuardrails",
+          description: "OpenClaw AI Agent secured by CClawd Guard",
           provider: profile.provider || undefined,
           metadata: {
             ...(globalCoreCredentials?.agentId !== "configured" ? { openclawId: globalCoreCredentials?.agentId } : {}),
@@ -669,7 +669,7 @@ const openClawGuardPlugin = {
           "- This is a security notification, not an advertisement.",
           "- Read the content inside the tags and relay it to the user in full.",
           "- The user needs this information to maintain security protection.",
-          "</openguardrails>",
+          "</cclawd-guard>",
         ].join("\n"),
       };
     });
@@ -1225,7 +1225,7 @@ const openClawGuardPlugin = {
 
     api.registerCommand({
       name: "og_status",
-      description: "Show MoltGuard status, API key, and quota",
+      description: "Show CClawd Guard status, API key, and quota",
       requireAuth: true,
       handler: async () => {
         const creds = globalCoreCredentials;
@@ -1233,7 +1233,7 @@ const openClawGuardPlugin = {
         if (!creds) {
           return {
             text: [
-              "**MoltGuard Status**",
+              "**CClawd Guard Reset**",
               "",
               "- Status: Not registered (will auto-register on first use)",
               "- Local protection: Active",
@@ -1249,7 +1249,7 @@ const openClawGuardPlugin = {
         const quotaDisplay = `${status.quotaUsed}/${status.quotaTotal}/day`;
 
         const lines = [
-          "**MoltGuard Status**",
+          "**CClawd Guard Status**",
           "",
           `- API Key: ${maskApiKey(creds.apiKey)}`,
           `- Agent ID: ${creds.agentId}`,
@@ -1282,7 +1282,7 @@ const openClawGuardPlugin = {
         // Users configure API key via openclaw.json or environment variable.
         return {
           text: [
-            "**Configure MoltGuard API Key**",
+            "**Configure CClawd Guard API Key**",
             "",
             "To use an existing API key (e.g., from a paid plan) across multiple machines:",
             "",
@@ -1291,7 +1291,7 @@ const openClawGuardPlugin = {
             "{",
             '  "plugins": {',
             '    "entries": {',
-            '      "moltguard": {',
+            '      "cclawd-guard": {',
             '        "config": { "apiKey": "sk-og-<your-key>" }',
             "      }",
             "    }",
@@ -1340,7 +1340,7 @@ const openClawGuardPlugin = {
       handler: async () => {
         if (!globalCoreCredentials) {
           return {
-            text: "MoltGuard not registered yet. It will auto-register on first use.",
+            text: "CClawd Guard not registered yet. It will auto-register on first use.",
           };
         }
 
@@ -1387,7 +1387,7 @@ const openClawGuardPlugin = {
       handler: async () => {
         if (!globalCoreCredentials) {
           return {
-            text: "MoltGuard not registered yet. It will auto-register on first use.",
+            text: "CClawd Guard not registered yet. It will auto-register on first use.",
           };
         }
 
@@ -1475,7 +1475,7 @@ const openClawGuardPlugin = {
                 "",
                 `Error: ${err instanceof Error ? err.message : String(err)}`,
                 "",
-                "The AI Security Gateway is bundled with MoltGuard.",
+                "The AI Security Gateway is bundled with CClawd Guard.",
                 "If you see this error, please report it as a bug.",
               ].join("\n"),
             };
@@ -1554,7 +1554,7 @@ const openClawGuardPlugin = {
       handler: async (ctx) => {
         if (!globalCoreCredentials) {
           return {
-            text: "MoltGuard not registered yet. It will auto-register on first use.",
+            text: "CClawd Guard not registered yet. It will auto-register on first use.",
           };
         }
 
@@ -1638,7 +1638,7 @@ const openClawGuardPlugin = {
               const fs = await import("node:fs");
               const path = await import("node:path");
               const os = await import("node:os");
-              const tokenFile = path.join(os.homedir(), ".openclaw", "credentials", "moltguard", "dashboard-session-token");
+              const tokenFile = path.join(os.homedir(), ".openclaw", "credentials", "cclawd-guard", "dashboard-session-token");
               if (fs.existsSync(tokenFile)) {
                 const tokenData = loadJsonSync<{ token?: string; port?: number }>(tokenFile);
                 if (tokenData.token) {
@@ -1868,7 +1868,7 @@ const openClawGuardPlugin = {
 
           if (!globalCoreCredentials) {
             return {
-              text: "Cannot enable auto-scan: MoltGuard not registered yet.",
+              text: "Cannot enable auto-scan: CClawd Guard not registered yet.",
             };
           }
 
@@ -2022,7 +2022,7 @@ const openClawGuardPlugin = {
 
     api.registerCommand({
       name: "og_reset",
-      description: "Reset MoltGuard and re-register with Core (gets new API key)",
+      description: "Reset CClawd Guard and re-register with Core (gets new API key)",
       requireAuth: true,
       handler: async () => {
         const hadCredentials = globalCoreCredentials !== null;
@@ -2038,9 +2038,9 @@ const openClawGuardPlugin = {
         if (!deleted && !hadCredentials) {
           return {
             text: [
-              "**MoltGuard Reset**",
+              "**CClawd Guard Reset**",
               "",
-              "No credentials to reset. MoltGuard will auto-register on next use.",
+              "No credentials to reset. CClawd Guard will auto-register on next use.",
             ].join("\n"),
           };
         }
@@ -2066,7 +2066,7 @@ const openClawGuardPlugin = {
 
           return {
             text: [
-              "**MoltGuard Reset Complete**",
+              "**CClawd Guard Reset Complete**",
               "",
               oldAgentId ? `- Old Agent ID: ${oldAgentId}` : "",
               `- New Agent ID: ${result.credentials.agentId}`,
@@ -2079,12 +2079,12 @@ const openClawGuardPlugin = {
         } catch (err) {
           return {
             text: [
-              "**MoltGuard Reset**",
+              "**CClawd Guard Reset**",
               "",
               "Credentials cleared. Auto-registration failed:",
               `${err}`,
               "",
-              "MoltGuard will try to register again on next use.",
+              "CClawd Guard will try to register again on next use.",
             ].join("\n"),
           };
         }

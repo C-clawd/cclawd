@@ -17,7 +17,7 @@ import { openclawHome } from "./env.js";
 
 function debugLog(msg: string): void {
   try {
-    const logPath = path.join(openclawHome, "logs", "moltguard-debug.log");
+    const logPath = path.join(openclawHome, "logs", "cclawd-guard-debug.log");
     fs.appendFileSync(logPath, `[${new Date().toISOString()}] [BusinessReporter] ${msg}\n`);
   } catch { /* ignore */ }
 }

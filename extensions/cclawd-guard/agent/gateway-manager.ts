@@ -18,9 +18,9 @@ import { loadJsonSync } from "./fs-utils.js";
 
 const OPENCLAW_DIR = path.join(os.homedir(), ".openclaw");
 const OPENCLAW_CONFIG = path.join(OPENCLAW_DIR, "openclaw.json");
-const MOLTGUARD_DATA_DIR = path.join(OPENCLAW_DIR, "extensions/moltguard/data");
-const GATEWAY_CONFIG = path.join(MOLTGUARD_DATA_DIR, "gateway.json");
-const GATEWAY_BACKUP = path.join(MOLTGUARD_DATA_DIR, "gateway-backup.json");
+const CCLAWD_GUARD_DATA_DIR = path.join(OPENCLAW_DIR, "extensions/cclawd-guard/data");
+const GATEWAY_CONFIG = path.join(CCLAWD_GUARD_DATA_DIR, "gateway.json");
+const GATEWAY_BACKUP = path.join(CCLAWD_GUARD_DATA_DIR, "gateway-backup.json");
 const DEFAULT_GATEWAY_PORT = 53669;
 const GATEWAY_SERVER_URL = `http://127.0.0.1:${DEFAULT_GATEWAY_PORT}`;
 
@@ -177,7 +177,7 @@ export function setDashboardToken(token: string): void {
  * Load dashboard session token from file
  */
 function loadDashboardToken(): string | null {
-  const tokenFile = path.join(OPENCLAW_DIR, "credentials", "moltguard", "dashboard-session-token");
+  const tokenFile = path.join(OPENCLAW_DIR, "credentials", "cclawd-guard", "dashboard-session-token");
   try {
     if (existsSync(tokenFile)) {
       const data = loadJsonSync<{ token?: string }>(tokenFile);
@@ -221,7 +221,7 @@ async function reportActivity(event: GatewayActivityEvent): Promise<void> {
     });
 
     if (!response.ok) {
-      console.error("[moltguard] Failed to report gateway activity:", response.status);
+      console.error("[cclawd-guard] Failed to report gateway activity:", response.status);
     }
   } catch {
     // Silently ignore errors - dashboard may not be running
@@ -272,7 +272,7 @@ async function waitForPortAvailable(port: number, timeoutMs: number = 10000): Pr
  * Start the gateway server (in-process, embedded mode)
  */
 export async function startGateway(): Promise<void> {
-  mkdirSync(MOLTGUARD_DATA_DIR, { recursive: true });
+  mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
 
   if (!existsSync(GATEWAY_CONFIG)) {
     const defaultConfig = {
@@ -287,7 +287,7 @@ export async function startGateway(): Promise<void> {
     addActivityListener((event) => {
       // Report asynchronously to avoid blocking gateway
       reportActivity(event).catch((err) => {
-        console.error("[moltguard] Failed to report activity:", err);
+        console.error("[cclawd-guard] Failed to report activity:", err);
       });
 
       // Report to business reporter (only sanitize events with actual redactions)
@@ -302,7 +302,7 @@ export async function startGateway(): Promise<void> {
   if (await isPortInUse(DEFAULT_GATEWAY_PORT)) {
     const available = await waitForPortAvailable(DEFAULT_GATEWAY_PORT, 10000);
     if (!available) {
-      console.error(`[moltguard] Gateway port ${DEFAULT_GATEWAY_PORT} is still in use after waiting`);
+      console.error(`[cclawd-guard] Gateway port ${DEFAULT_GATEWAY_PORT} is still in use after waiting`);
       gatewayRunning = false;
       return;
     }
@@ -313,7 +313,7 @@ export async function startGateway(): Promise<void> {
     startGatewayServer(GATEWAY_CONFIG, true);
     gatewayRunning = true;
   } catch (err) {
-    console.error("[moltguard] Failed to start gateway:", err);
+    console.error("[cclawd-guard] Failed to start gateway:", err);
     gatewayRunning = false;
   }
 }
@@ -431,7 +431,7 @@ function configureGateway(providers: Record<string, ProviderConfig>): void {
     backends,
   };
 
-  mkdirSync(MOLTGUARD_DATA_DIR, { recursive: true });
+  mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
   writeFileSync(GATEWAY_CONFIG, JSON.stringify(gatewayConfig, null, 2) + "\n", "utf-8");
 }
 
@@ -601,7 +601,7 @@ export async function enableGateway(): Promise<{ providers: string[]; warnings: 
   // If all providers are already pointing to gateway, treat as "already enabled"
   if (routedProviders.length === 0 && skipped.length > 0) {
     // Create a minimal backup to mark gateway as enabled
-    mkdirSync(MOLTGUARD_DATA_DIR, { recursive: true });
+    mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
     const minimalBackup: GatewayBackup = {
       timestamp: new Date().toISOString(),
       routedProviders: {},
@@ -641,7 +641,7 @@ export async function enableGateway(): Promise<{ providers: string[]; warnings: 
   }
 
   // Save backup
-  mkdirSync(MOLTGUARD_DATA_DIR, { recursive: true });
+  mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
   writeFileSync(GATEWAY_BACKUP, JSON.stringify(backup, null, 2) + "\n", "utf-8");
 
   const warnings: string[] = [];

@@ -140,7 +140,7 @@ async function ensureApiKey(
 
   try {
     const result = await registerWithCore("openclaw-agent", "OpenClaw AI Agent", coreUrl);
-    log.info("Registered with OpenGuardrails. API key saved to ~/.openclaw/credentials/moltguard/credentials.json");
+    log.info("Registered with CClawd Guard. API key saved to ~/.openclaw/credentials/cclawd-guard/credentials.json");
     return result.credentials.apiKey;
   } catch (error) {
     throw new Error(

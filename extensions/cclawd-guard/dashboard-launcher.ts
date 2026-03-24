@@ -1,8 +1,6 @@
 /**
- * Dashboard Launcher for MoltGuard
- *
  * Starts the local Dashboard in-process for monitoring agent activity.
- * All components (MoltGuard, Gateway, Dashboard) run in the same process.
+ * All components (CClawd Guard, Gateway, Dashboard) run in the same process.
  */
 
 import crypto from "node:crypto";
@@ -23,7 +21,7 @@ let startupInProgress = false;
 let startupPromise: Promise<LaunchResult> | null = null;
 
 export const DASHBOARD_PORT = 53667;
-const TOKEN_FILE = path.join(os.homedir(), ".openclaw", "credentials", "moltguard", "dashboard-session-token");
+const TOKEN_FILE = path.join(os.homedir(), ".openclaw", "credentials", "cclawd-guard", "dashboard-session-token");
 
 /**
  * Get the package root directory
@@ -47,7 +45,7 @@ function getPackageRoot(): string {
  * Get the plugin's data directory
  */
 export function getPluginDataDir(): string {
-  return path.join(openclawHome, "extensions", "moltguard", "data");
+  return path.join(openclawHome, "extensions", "cclawd-guard", "data");
 }
 
 interface LaunchOptions {
@@ -152,9 +150,9 @@ function findDashboardDir(): { dir: string; bundled: boolean } | null {
   const packageRoot = getPackageRoot();
 
   const candidates = [
-    // 1. Bundled in moltguard package (production)
+    // 1. Bundled in cclawd-guard package (production)
     { dir: path.join(packageRoot, "dashboard-dist"), bundled: true },
-    // 2. Relative to moltguard (monorepo development)
+    // 2. Relative to cclawd-guard (monorepo development)
     { dir: path.join(packageRoot, "..", "dashboard"), bundled: false },
   ];
 

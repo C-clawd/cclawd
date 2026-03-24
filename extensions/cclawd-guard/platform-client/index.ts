@@ -28,7 +28,7 @@ export class DashboardClient {
 
   private debugFileLog(msg: string): void {
     try {
-      const logPath = path.join(openclawHome, "logs", "moltguard-debug.log");
+      const logPath = path.join(openclawHome, "logs", "cclawd-guard-debug.log");
       fs.appendFileSync(logPath, `[${new Date().toISOString()}] [DashboardClient] ${msg}\n`);
     } catch { /* ignore */ }
   }

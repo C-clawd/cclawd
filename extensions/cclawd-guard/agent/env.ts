@@ -1,5 +1,5 @@
 /**
- * Centralized environment variable access for MoltGuard.
+ * Centralized environment variable access for CClawd Guard.
  *
  * This module is the ONLY place that reads `process.env` so that
  * modules performing network calls never contain env access in the

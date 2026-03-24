@@ -76,8 +76,8 @@ export class AnalysisStore {
       fs.mkdirSync(logPath, { recursive: true });
     }
 
-    this.analysisFile = path.join(logPath, "moltguard-analyses.jsonl");
-    this.feedbackFile = path.join(logPath, "moltguard-feedback.jsonl");
+    this.analysisFile = path.join(logPath, "cclawd-guard-analyses.jsonl");
+    this.feedbackFile = path.join(logPath, "cclawd-guard-feedback.jsonl");
 
     // Read existing data to determine next IDs
     const analyses = readLines<AnalysisRow>(this.analysisFile);
@@ -214,7 +214,7 @@ export class AnalysisStore {
   // ─── Tool Call Observations (JSONL fallback) ────────────────────
 
   private get toolCallFile(): string {
-    return path.join(path.dirname(this.analysisFile), "moltguard-tool-calls.jsonl");
+    return path.join(path.dirname(this.analysisFile), "cclawd-guard-tool-calls.jsonl");
   }
 
   /**

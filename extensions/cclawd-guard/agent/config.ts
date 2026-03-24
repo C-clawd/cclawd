@@ -15,7 +15,7 @@ import { loadTextSync, loadTextSafe, loadJsonSafe } from "./fs-utils.js";
 
 export const DEFAULT_CORE_URL = defaultCoreUrl;
 
-const CREDENTIALS_DIR = path.join(os.homedir(), ".openclaw/credentials/moltguard");
+const CREDENTIALS_DIR = path.join(os.homedir(), ".openclaw/credentials/cclawd-guard");
 const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, "credentials.json");
 
 // =============================================================================
