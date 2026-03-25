@@ -13,6 +13,11 @@ OUTPUT_FILE="$ROOT_DIR/src/canvas-host/a2ui/a2ui.bundle.js"
 A2UI_RENDERER_DIR="$ROOT_DIR/vendor/a2ui/renderers/lit"
 A2UI_APP_DIR="$ROOT_DIR/apps/shared/OpenClawKit/Tools/CanvasA2UI"
 
+if [[ "${OPENCLAW_A2UI_SKIP_BUNDLE:-0}" == "1" ]]; then
+  echo "Skipping A2UI bundling (OPENCLAW_A2UI_SKIP_BUNDLE=1)."
+  exit 0
+fi
+
 # Docker builds exclude vendor/apps via .dockerignore.
 # In that environment we can keep a prebuilt bundle only if it exists.
 if [[ ! -d "$A2UI_RENDERER_DIR" || ! -d "$A2UI_APP_DIR" ]]; then

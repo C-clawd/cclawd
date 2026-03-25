@@ -321,7 +321,7 @@ const openClawGuardPlugin = {
       title: "Core URL",
       description: "CClawd Guard Core URL",
       type: "string",
-      default: "https://www.openguardrails.com/core"
+      default: "http://localhost:53666"
     }
   },
 
