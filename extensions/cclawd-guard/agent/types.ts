@@ -13,7 +13,7 @@ export type CClawdGuardConfig = {
   apiKey?: string;
   timeoutMs?: number;
   /** Core API URL (registration + behavior detection).
-   *  Default: https://www.openguardrails.com/core */
+   *  Default: https://cclawd.dbhl.cn/cclawd-guard-core */
   coreUrl?: string;
   /** Agent name for registration */
   agentName?: string;

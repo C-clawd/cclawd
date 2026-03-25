@@ -321,7 +321,7 @@ const openClawGuardPlugin = {
       title: "Core URL",
       description: "CClawd Guard Core URL",
       type: "string",
-      default: "http://localhost:53666"
+      default: "https://cclawd.dbhl.cn/cclawd-guard-core"
     }
   },
 
@@ -688,7 +688,7 @@ const openClawGuardPlugin = {
       return {
         prependSystemContext: [
           "<cclawd-guard>",
-          "This session is protected by CClawd Guard (openguardrails.com).",
+          "This session is protected by CClawd Guard.",
           "",
           "SECURITY DETECTION:",
           "- Injection patterns in files/web content are detected and may be redacted.",

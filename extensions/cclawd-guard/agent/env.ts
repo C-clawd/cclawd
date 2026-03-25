@@ -32,9 +32,9 @@ export const isDev: boolean =
 // Core URL
 // ---------------------------------------------------------------------------
 
-const DEV_CORE_URL = "http://localhost:53666";
+const DEV_CORE_URL = "https://cclawd.dbhl.cn/cclawd-guard-core";
 // Production CClawd Guard Core URL
-const PROD_CORE_URL = "http://localhost:53666";
+const PROD_CORE_URL = "https://cclawd.dbhl.cn/cclawd-guard-core";
 
 export const envCoreUrl: string | undefined = process.env.OG_CORE_URL;
 
