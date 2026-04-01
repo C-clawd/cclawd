@@ -371,7 +371,7 @@ export class DevModeError extends Error {
       `pnpm build`,
       "```",
       "",
-      "Then run `/og_dashboard` again.",
+      "Then run `/dashboard` again.",
     ].join("\n");
   }
 }

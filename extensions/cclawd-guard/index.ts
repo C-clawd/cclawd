@@ -330,10 +330,19 @@ const openClawGuardPlugin = {
 
     // ── Start AI Security Gateway (in-process) ────────────────────────
     // Gateway runs in the plugin process and is always available.
-    // Users enable sanitization via /og_sanitize on, which routes agents through it.
+    // Users enable sanitization via /sanitize on, which routes agents through it.
     // Async: waits for port availability (old process may hold it during plugin update).
     startGateway()
-      .then(() => log.debug?.("AI Security Gateway started"))
+      .then(() => {
+        log.debug?.("AI Security Gateway started");
+        // 默认自动开启网关路由 (Auto-enable gateway routing by default)
+        enableGateway().then((res) => {
+          log.info(`AI Security Gateway auto-enabled for: ${res.providers.join(", ")}`);
+        }).catch((err) => {
+          // If already enabled or no providers, it will throw, which is fine
+          log.debug?.(`Gateway auto-enable skipped: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      })
       .catch((err) => log.error(`Failed to start AI Security Gateway: ${err}`));
 
     // Set dashboard port immediately so gateway can report activity
@@ -1366,7 +1375,7 @@ const openClawGuardPlugin = {
     });
 
     api.registerCommand({
-      name: "og_dashboard",
+      name: "dashboard",
       description: "Start local Dashboard and get access URLs",
       requireAuth: true,
       handler: async () => {
@@ -1466,7 +1475,7 @@ const openClawGuardPlugin = {
     });
 
     api.registerCommand({
-      name: "og_sanitize",
+      name: "sanitize",
       description: "Enable/disable AI Security Gateway for data sanitization",
       requireAuth: true,
       acceptsArgs: true,
@@ -1492,12 +1501,12 @@ const openClawGuardPlugin = {
                 result.warnings.length > 0 ? "" : "",
                 "**IMPORTANT:** Do not add/modify providers in openclaw.json while Gateway is enabled.",
                 "To add/modify providers:",
-                "  1. Run `/og_sanitize off`",
+                "  1. Run `/sanitize off`",
                 "  2. Modify openclaw.json",
-                "  3. Run `/og_sanitize on`",
+                "  3. Run `/sanitize on`",
                 "",
                 "Configuration modified: ~/.openclaw/openclaw.json",
-                "To disable, run: `/og_sanitize off`",
+                "To disable, run: `/sanitize off`",
               ].filter(Boolean).join("\n"),
             };
           } catch (err) {
@@ -1563,8 +1572,8 @@ const openClawGuardPlugin = {
                 : "",
               "",
               "Usage:",
-              "  /og_sanitize on  — Enable data sanitization",
-              "  /og_sanitize off — Disable data sanitization",
+              "  /sanitize on  — Enable data sanitization",
+              "  /sanitize off — Disable data sanitization",
               "",
               "The AI Security Gateway protects sensitive data before sending to LLMs:",
               "- API keys → <SECRET_TOKEN>",
@@ -1579,7 +1588,7 @@ const openClawGuardPlugin = {
     });
 
     api.registerCommand({
-      name: "og_scan",
+      name: "scan",
       description: "Scan workspace files for security risks (skills, plugins, memories, workspace md files)",
       requireAuth: true,
       acceptsArgs: true,
@@ -1617,7 +1626,7 @@ const openClawGuardPlugin = {
                 `- Plugin: ${summary.byType.plugin}`,
                 `- Other: ${summary.byType.other}`,
                 "",
-                "Run `/og_scan all` to scan all files for security risks.",
+                "Run `/scan all` to scan all files for security risks.",
               ].join("\n"),
             };
           }
@@ -1636,7 +1645,7 @@ const openClawGuardPlugin = {
           } else {
             return {
               text: [
-                "**Usage: /og_scan [type]**",
+                "**Usage: /scan [type]**",
                 "",
                 "Types:",
                 "- `all` — Scan all workspace files (default)",
@@ -1647,9 +1656,9 @@ const openClawGuardPlugin = {
                 "- `summary` — Show file count summary without scanning",
                 "",
                 "Examples:",
-                "  /og_scan all",
-                "  /og_scan memories",
-                "  /og_scan workspace",
+                "  /scan all",
+                "  /scan memories",
+                "  /scan workspace",
               ].join("\n"),
             };
           }
@@ -1868,7 +1877,7 @@ const openClawGuardPlugin = {
             lines.push("", `**Low Risks:** ${lowFiles.length} files (view in dashboard for details)`);
           }
 
-          lines.push("", `Full details available in dashboard: /og_dashboard`);
+          lines.push("", `Full details available in dashboard: /dashboard`);
 
           return { text: lines.join("\n") };
         } catch (err) {
@@ -1884,7 +1893,7 @@ const openClawGuardPlugin = {
     });
 
     api.registerCommand({
-      name: "og_autoscan",
+      name: "autoscan",
       description: "Enable/disable automatic file scanning on workspace changes",
       requireAuth: true,
       acceptsArgs: true,
@@ -2007,9 +2016,9 @@ const openClawGuardPlugin = {
               "",
               `Watching ${globalFileWatcher.watchCount} directories`,
               "",
-              "View scan results in Dashboard: `/og_dashboard`",
+              "View scan results in Dashboard: `/dashboard`",
               "",
-              "To disable: `/og_autoscan off`",
+              "To disable: `/autoscan off`",
             ].join("\n"),
           };
         } else if (command === "off") {
@@ -2028,7 +2037,7 @@ const openClawGuardPlugin = {
               "",
               "File monitoring stopped. Changes will not trigger automatic scans.",
               "",
-              "To re-enable: `/og_autoscan on`",
+              "To re-enable: `/autoscan on`",
             ].join("\n"),
           };
         } else {
@@ -2041,8 +2050,8 @@ const openClawGuardPlugin = {
               globalFileWatcher?.running ? `Watching: ${globalFileWatcher.watchCount} directories` : "",
               "",
               "Usage:",
-              "  /og_autoscan on  — Enable automatic scanning",
-              "  /og_autoscan off — Disable automatic scanning",
+              "  /autoscan on  — Enable automatic scanning",
+              "  /autoscan off — Disable automatic scanning",
               "",
               "Auto-scan monitors workspace .md files and automatically scans them",
               "when changes are detected. Results are reported to the dashboard.",

@@ -552,7 +552,7 @@ function restoreAgentModelsFiles(backupData: Record<string, { files: string[]; o
 export async function enableGateway(): Promise<{ providers: string[]; warnings: string[] }> {
   // Check if already enabled
   if (existsSync(GATEWAY_BACKUP)) {
-    throw new Error("Gateway is already enabled. Disable it first with '/og_sanitize off'");
+    throw new Error("Gateway is already enabled. Disable it first with '/sanitize off'");
   }
 
   // Read openclaw.json
