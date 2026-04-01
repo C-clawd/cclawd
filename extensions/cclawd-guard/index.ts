@@ -409,6 +409,7 @@ const openClawGuardPlugin = {
         globalBehaviorDetector.setCredentials(globalCoreCredentials);
         globalEventReporter?.setCredentials(globalCoreCredentials);
         log.info("Platform: using configured API key");
+        startAutoScan();
       } else {
         debugLog(`loadCoreCredentials(${config.coreUrl}) called`);
         globalCoreCredentials = loadCoreCredentials(config.coreUrl);
@@ -418,6 +419,7 @@ const openClawGuardPlugin = {
           globalEventReporter?.setCredentials(globalCoreCredentials);
           const mode = globalCoreCredentials.email ? "human managed" : "autonomous";
           log.info(`Platform: active (${mode} mode)`);
+          startAutoScan();
         } else {
           // Auto-register on first load — agent is immediately usable with autonomous quota
           log.info("Platform: auto-registering...");
@@ -444,6 +446,7 @@ const openClawGuardPlugin = {
               log.info(isEnterprise
                 ? "Platform: registered (enterprise mode, unlimited quota)"
                 : "Platform: registered (autonomous mode, 500/day quota)");
+              startAutoScan();
             })
             .catch((err) => {
               debugLog(`registerWithCore FAILED: ${err}`);
@@ -1892,6 +1895,81 @@ const openClawGuardPlugin = {
       },
     });
 
+    async function startAutoScan() {
+      if (autoScanEnabled && globalFileWatcher?.running) return;
+      if (!globalCoreCredentials) return;
+
+      globalFileWatcher = new FileWatcher({
+        onFilesChanged: async (changedFiles) => {
+          if (!globalCoreCredentials) return;
+
+          const { scanWorkspaceMdFiles } = await import("./agent/workspace-scanner.js");
+          const allFiles = await scanWorkspaceMdFiles();
+          const filesToScan = allFiles.filter(f => changedFiles.some(cf => cf.endsWith(f.path)));
+
+          if (filesToScan.length === 0) return;
+          log.debug?.(`Auto-scanning ${filesToScan.length} changed file(s)...`);
+
+          try {
+            const res = await fetch(`${config.coreUrl}/api/v1/static/scan`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${globalCoreCredentials.apiKey}`,
+              },
+              body: JSON.stringify({
+                agentId: globalCoreCredentials.agentId,
+                files: filesToScan,
+                meta: { pluginVersion: PLUGIN_VERSION, clientTimestamp: new Date().toISOString() },
+              }),
+            });
+
+            if (!res.ok) return;
+            const data = await res.json() as any;
+            if (!data.success || !data.data) return;
+            const result = data.data as any;
+
+            if (globalDashboardClient && result.results) {
+              for (const fileResult of result.results) {
+                if (fileResult.riskLevel !== "safe") {
+                  globalDashboardClient.reportDetection({
+                    agentId: globalCoreCredentials.agentId,
+                    safe: fileResult.riskLevel === "safe",
+                    categories: fileResult.findings.map((f: any) => f.scanner),
+                    findings: fileResult.findings,
+                    sensitivityScore: fileResult.riskLevel === "critical" ? 1.0 :
+                                      fileResult.riskLevel === "high" ? 0.8 :
+                                      fileResult.riskLevel === "medium" ? 0.6 :
+                                      fileResult.riskLevel === "low" ? 0.4 : 0.0,
+                    latencyMs: 0,
+                    scanType: "static",
+                    filePath: fileResult.path,
+                    fileType: filesToScan.find((f: any) => f.path === fileResult.path)?.type,
+                  }).catch(() => {});
+                }
+              }
+              const riskCount = result.results.filter((r: any) => r.riskLevel !== "safe").length;
+              if (riskCount > 0) log.info(`Auto-scan found ${riskCount} file(s) with security risks`);
+            }
+
+            if (globalBusinessReporter && result.results) {
+              for (const fileResult of result.results) {
+                const categories = fileResult.findings?.map((f: any) => f.scanner) ?? [];
+                globalBusinessReporter.recordScanResult("static", categories, fileResult.riskLevel !== "safe");
+              }
+            }
+          } catch (err) {
+            log.debug?.(`Auto-scan failed: ${err}`);
+          }
+        },
+        logger: log,
+      });
+
+      globalFileWatcher.start();
+      autoScanEnabled = true;
+      log.debug?.(`Auto-scan implicitly enabled (watching ${globalFileWatcher.watchCount} directories)`);
+    }
+
     api.registerCommand({
       name: "autoscan",
       description: "Enable/disable automatic file scanning on workspace changes",
@@ -1913,99 +1991,8 @@ const openClawGuardPlugin = {
             };
           }
 
-          // Create file watcher
-          globalFileWatcher = new FileWatcher({
-            onFilesChanged: async (changedFiles) => {
-              if (!globalCoreCredentials) return;
-
-              // Import workspace scanner
-              const { scanWorkspaceMdFiles } = await import("./agent/workspace-scanner.js");
-
-              // Get file details for changed files
-              const allFiles = await scanWorkspaceMdFiles();
-              const filesToScan = allFiles.filter(f =>
-                changedFiles.some(cf => cf.endsWith(f.path))
-              );
-
-              if (filesToScan.length === 0) return;
-
-              log.debug?.(`Auto-scanning ${filesToScan.length} changed file(s)...`);
-
-              // Call Core API for scanning
-              try {
-                const res = await fetch(`${config.coreUrl}/api/v1/static/scan`, {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${globalCoreCredentials.apiKey}`,
-                  },
-                  body: JSON.stringify({
-                    agentId: globalCoreCredentials.agentId,
-                    files: filesToScan,
-                    meta: {
-                      pluginVersion: PLUGIN_VERSION,
-                      clientTimestamp: new Date().toISOString(),
-                    },
-                  }),
-                });
-
-                if (!res.ok) return;
-
-                const data = await res.json() as any;
-                if (!data.success || !data.data) return;
-
-                const result = data.data as any;
-
-                // Report to dashboard
-                if (globalDashboardClient && result.results) {
-                  for (const fileResult of result.results) {
-                    if (fileResult.riskLevel !== "safe") {
-                      globalDashboardClient
-                        .reportDetection({
-                          agentId: globalCoreCredentials.agentId,
-                          safe: fileResult.riskLevel === "safe",
-                          categories: fileResult.findings.map((f: any) => f.scanner),
-                          findings: fileResult.findings,
-                          sensitivityScore: fileResult.riskLevel === "critical" ? 1.0 :
-                                            fileResult.riskLevel === "high" ? 0.8 :
-                                            fileResult.riskLevel === "medium" ? 0.6 :
-                                            fileResult.riskLevel === "low" ? 0.4 : 0.0,
-                          latencyMs: 0,
-                          scanType: "static",
-                          filePath: fileResult.path,
-                          fileType: filesToScan.find((f: any) => f.path === fileResult.path)?.type,
-                        })
-                        .catch(() => {});
-                    }
-                  }
-
-                  // Log summary
-                  const riskCount = result.results.filter((r: any) => r.riskLevel !== "safe").length;
-                  if (riskCount > 0) {
-                    log.info(`Auto-scan found ${riskCount} file(s) with security risks`);
-                  }
-                }
-
-                // Report auto-scan results to business reporter
-                if (globalBusinessReporter && result.results) {
-                  for (const fileResult of result.results) {
-                    const categories = fileResult.findings?.map((f: any) => f.scanner) ?? [];
-                    globalBusinessReporter.recordScanResult(
-                      "static",
-                      categories,
-                      fileResult.riskLevel !== "safe",
-                    );
-                  }
-                }
-              } catch (err) {
-                log.debug?.(`Auto-scan failed: ${err}`);
-              }
-            },
-            logger: log,
-          });
-
-          globalFileWatcher.start();
-          autoScanEnabled = true;
+          // Call shared start function
+          await startAutoScan();
 
           return {
             text: [
@@ -2014,7 +2001,7 @@ const openClawGuardPlugin = {
               "Workspace files are now being monitored for changes.",
               "When a .md file is modified, it will be automatically scanned for security risks.",
               "",
-              `Watching ${globalFileWatcher.watchCount} directories`,
+              `Watching ${globalFileWatcher?.watchCount || 0} directories`,
               "",
               "View scan results in Dashboard: `/dashboard`",
               "",
