@@ -69,7 +69,7 @@ export { evaluateSenderGroupAccessForPolicy } from "./group-access.js";
 export type { WizardPrompter } from "../wizard/prompts.js";
 export { feishuSetupWizard, feishuSetupAdapter } from "../../extensions/feishu/setup-api.js";
 export { buildAgentMediaPayload } from "./agent-media-payload.js";
-export { readJsonFileWithFallback } from "./json-store.js";
+export { readJsonFileWithFallback, writeJsonFileAtomically } from "./json-store.js";
 export { createChannelPairingController } from "./channel-pairing.js";
 export { createPersistentDedupe } from "./persistent-dedupe.js";
 export {

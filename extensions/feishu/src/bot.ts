@@ -42,9 +42,11 @@ import {
   resolveFeishuAllowlistMatch,
   isFeishuGroupAllowed,
 } from "./policy.js";
+import { resolveFeishuRealPersonAuthGate } from "./real-person-auth.js";
 import { createFeishuReplyDispatcher } from "./reply-dispatcher.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu, listFeishuThreadMessages, sendMessageFeishu } from "./send.js";
+import { detectIdType, formatFeishuTarget } from "./targets.js";
 import type { FeishuMessageContext } from "./types.js";
 import type { DynamicAgentCreationConfig } from "./types.js";
 
@@ -263,6 +265,55 @@ export async function handleFeishuMessage(params: {
   const isGroup = ctx.chatType === "group";
   const isDirect = !isGroup;
   const senderUserId = event.sender.sender_id.user_id?.trim() || undefined;
+  const senderIdForAuth = ctx.senderOpenId?.trim() || "";
+
+  const sendAuthPrompt = async (verificationUrl: string) => {
+    const target = senderIdForAuth
+      ? formatFeishuTarget(senderIdForAuth, detectIdType(senderIdForAuth) ?? undefined)
+      : "";
+    if (!target) {
+      throw new Error("Unable to resolve Feishu auth target");
+    }
+    const text =
+      `当前为首次对话，请你先进行实人认证，认证链接：${verificationUrl}，五分钟有效！`;
+    await sendMessageFeishu({
+      cfg,
+      to: target,
+      text,
+      accountId: account.accountId,
+    });
+  };
+
+  const sendAuthSuccess = async () => {
+    const target = senderIdForAuth
+      ? formatFeishuTarget(senderIdForAuth, detectIdType(senderIdForAuth) ?? undefined)
+      : "";
+    if (!target) {
+      throw new Error("Unable to resolve Feishu auth target");
+    }
+    await sendMessageFeishu({
+      cfg,
+      to: target,
+      text: "认证成功",
+      accountId: account.accountId,
+    });
+  };
+
+  if (ctx.chatType === "p2p" && senderIdForAuth && senderIdForAuth !== botOpenId) {
+    const gate = await resolveFeishuRealPersonAuthGate({
+      accountId: account.accountId,
+      senderId: senderIdForAuth,
+      log,
+      error,
+    });
+    if (gate.action === "block") {
+      await sendAuthPrompt(gate.verificationUrl);
+      return;
+    }
+    if (gate.action === "allow-with-success") {
+      await sendAuthSuccess();
+    }
+  }
 
   // Handle merge_forward messages: fetch full message via API then expand sub-messages
   if (event.message.message_type === "merge_forward") {
