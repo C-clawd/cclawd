@@ -19,6 +19,7 @@ const getFeishuMemberInfoMock = vi.hoisted(() => vi.fn());
 const listFeishuDirectoryPeersLiveMock = vi.hoisted(() => vi.fn());
 const listFeishuDirectoryGroupsLiveMock = vi.hoisted(() => vi.fn());
 const feishuOutboundSendMediaMock = vi.hoisted(() => vi.fn());
+const monitorFeishuProviderMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./probe.js", () => ({
   probeFeishu: probeFeishuMock,
@@ -51,6 +52,10 @@ vi.mock("./channel.runtime.js", () => ({
       sendMedia: feishuOutboundSendMediaMock,
     },
   },
+}));
+
+vi.mock("./monitor.js", () => ({
+  monitorFeishuProvider: monitorFeishuProviderMock,
 }));
 
 import { feishuPlugin } from "./channel.js";
@@ -94,6 +99,43 @@ describe("feishuPlugin.status.probeAccount", () => {
       }),
     );
     expect(result).toMatchObject({ ok: true, appId: "cli_main" });
+  });
+});
+
+describe("feishuPlugin gateway", () => {
+  it("starts the Feishu monitor without runtime dynamic import", async () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          enabled: true,
+          appId: "cli_main",
+          appSecret: "secret_main",
+          webhookPort: 9333,
+        },
+      },
+    } as OpenClawConfig;
+    const runtime = { log: { info: vi.fn() } };
+    const abortController = new AbortController();
+    const setStatus = vi.fn();
+
+    monitorFeishuProviderMock.mockResolvedValueOnce(undefined);
+
+    await feishuPlugin.gateway?.startAccount?.({
+      cfg,
+      accountId: undefined,
+      runtime: runtime as never,
+      abortSignal: abortController.signal,
+      setStatus,
+      log: runtime.log,
+    } as never);
+
+    expect(setStatus).toHaveBeenCalledWith({ accountId: undefined, port: 9333 });
+    expect(monitorFeishuProviderMock).toHaveBeenCalledWith({
+      config: cfg,
+      runtime,
+      abortSignal: abortController.signal,
+      accountId: undefined,
+    });
   });
 });
 

@@ -17,6 +17,7 @@ if (shouldWarnCompatImport) {
   );
 }
 
+export { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "./account-id.js";
 export { emptyPluginConfigSchema } from "../plugins/config-schema.js";
 export { resolveControlCommandGate } from "../channels/command-gating.js";
 export { delegateCompactionToRuntime } from "../context-engine/delegate.js";

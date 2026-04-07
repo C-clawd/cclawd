@@ -43,6 +43,7 @@ import { createFeishuClient } from "./client.js";
 import { FeishuConfigSchema } from "./config-schema.js";
 import { parseFeishuConversationId } from "./conversation-id.js";
 import { listFeishuDirectoryPeers, listFeishuDirectoryGroups } from "./directory.static.js";
+import { monitorFeishuProvider } from "./monitor.js";
 import { resolveFeishuGroupToolPolicy } from "./policy.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { resolveFeishuOutboundSessionRoute } from "./session-route.js";
@@ -976,7 +977,6 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
       }),
       gateway: {
         startAccount: async (ctx) => {
-          const { monitorFeishuProvider } = await import("./monitor.js");
           const account = resolveFeishuAccount({ cfg: ctx.cfg, accountId: ctx.accountId });
           const port = account.config?.webhookPort ?? null;
           ctx.setStatus({ accountId: ctx.accountId, port });

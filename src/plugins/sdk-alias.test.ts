@@ -495,6 +495,7 @@ describe("plugin sdk alias helpers", () => {
   it("uses transpiled Jiti loads for source TypeScript plugin entries", () => {
     expect(shouldPreferNativeJiti("/repo/dist/plugins/runtime/index.js")).toBe(true);
     expect(shouldPreferNativeJiti("/repo/extensions/discord/src/channel.runtime.ts")).toBe(false);
+    expect(shouldPreferNativeJiti("C:/repo/dist/plugins/runtime/index.js")).toBe(false);
   });
 
   it("loads source runtime shims through the non-native Jiti boundary", async () => {

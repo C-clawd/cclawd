@@ -346,6 +346,9 @@ export function buildPluginLoaderJitiOptions(aliasMap: Record<string, string>) {
 }
 
 export function shouldPreferNativeJiti(modulePath: string): boolean {
+  if (/^[A-Za-z]:[\\/]/.test(modulePath)) {
+    return false;
+  }
   switch (path.extname(modulePath).toLowerCase()) {
     case ".js":
     case ".mjs":
