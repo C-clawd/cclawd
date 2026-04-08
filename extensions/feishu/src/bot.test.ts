@@ -26,6 +26,8 @@ const {
   mockEnsureConfiguredBindingRouteReady,
   mockResolveBoundConversation,
   mockTouchBinding,
+  mockResolveFeishuRealPersonAuthGate,
+  mockCheckFeishuRealPersonAuthStatus,
 } = vi.hoisted(() => ({
   mockCreateFeishuReplyDispatcher: vi.fn(() => ({
     dispatcher: vi.fn(),
@@ -59,6 +61,8 @@ const {
   mockEnsureConfiguredBindingRouteReady: vi.fn(async (_params?: unknown) => ({ ok: true })),
   mockResolveBoundConversation: vi.fn(() => null),
   mockTouchBinding: vi.fn(),
+  mockResolveFeishuRealPersonAuthGate: vi.fn().mockResolvedValue({ action: "allow" }),
+  mockCheckFeishuRealPersonAuthStatus: vi.fn().mockResolvedValue({ status: "pending" }),
 }));
 
 vi.mock("./reply-dispatcher.js", () => ({
@@ -77,6 +81,11 @@ vi.mock("./media.js", () => ({
 
 vi.mock("./client.js", () => ({
   createFeishuClient: mockCreateFeishuClient,
+}));
+
+vi.mock("./real-person-auth.js", () => ({
+  resolveFeishuRealPersonAuthGate: (params: unknown) => mockResolveFeishuRealPersonAuthGate(params),
+  checkFeishuRealPersonAuthStatus: (params: unknown) => mockCheckFeishuRealPersonAuthStatus(params),
 }));
 
 vi.mock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => {
@@ -113,6 +122,9 @@ async function dispatchMessage(params: { cfg: ClawdbotConfig; event: FeishuMessa
 describe("handleFeishuMessage ACP routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
+    mockResolveFeishuRealPersonAuthGate.mockReset().mockResolvedValue({ action: "allow" });
+    mockCheckFeishuRealPersonAuthStatus.mockReset().mockResolvedValue({ status: "pending" });
     mockResolveConfiguredBindingRoute.mockReset().mockImplementation(
       ({ route }) =>
         ({
@@ -276,6 +288,85 @@ describe("handleFeishuMessage ACP routing", () => {
 
     expect(mockResolveConfiguredBindingRoute).toHaveBeenCalledTimes(1);
     expect(mockEnsureConfiguredBindingRouteReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays the blocked DM command after real-person auth succeeds", async () => {
+    vi.useFakeTimers();
+    mockResolveFeishuRealPersonAuthGate.mockResolvedValue({
+      action: "block",
+      verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
+      certToken: "test-token",
+    });
+    mockCheckFeishuRealPersonAuthStatus.mockResolvedValueOnce({ status: "success" });
+
+    await dispatchMessage({
+      cfg: {
+        session: { mainKey: "main", scope: "per-sender" },
+        channels: { feishu: { enabled: true, allowFrom: ["ou_sender_1"], dmPolicy: "open" } },
+      },
+      event: {
+        sender: { sender_id: { open_id: "ou_sender_1" } },
+        message: {
+          message_id: "msg-auth-replay-1",
+          chat_id: "oc_dm",
+          chat_type: "p2p",
+          message_type: "text",
+          content: JSON.stringify({ text: "hello after auth" }),
+        },
+      },
+    });
+
+    expect(mockCreateFeishuReplyDispatcher).not.toHaveBeenCalled();
+    expect(mockSendMessageFeishu).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    expect(mockCheckFeishuRealPersonAuthStatus).toHaveBeenCalledTimes(1);
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "认证成功",
+      }),
+    );
+    expect(mockCreateFeishuReplyDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps polling after transient auth status errors and replays on success", async () => {
+    vi.useFakeTimers();
+    mockResolveFeishuRealPersonAuthGate.mockResolvedValue({
+      action: "block",
+      verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
+      certToken: "test-token",
+    });
+    mockCheckFeishuRealPersonAuthStatus
+      .mockRejectedValueOnce(new Error("network timeout"))
+      .mockResolvedValueOnce({ status: "success" });
+
+    await dispatchMessage({
+      cfg: {
+        session: { mainKey: "main", scope: "per-sender" },
+        channels: { feishu: { enabled: true, allowFrom: ["ou_sender_1"], dmPolicy: "open" } },
+      },
+      event: {
+        sender: { sender_id: { open_id: "ou_sender_1" } },
+        message: {
+          message_id: "msg-auth-replay-2",
+          chat_id: "oc_dm",
+          chat_type: "p2p",
+          message_type: "text",
+          content: JSON.stringify({ text: "hello after retry" }),
+        },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(4_300);
+
+    expect(mockCheckFeishuRealPersonAuthStatus).toHaveBeenCalledTimes(2);
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "认证成功",
+      }),
+    );
+    expect(mockCreateFeishuReplyDispatcher).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces configured ACP initialization failures to the Feishu conversation", async () => {

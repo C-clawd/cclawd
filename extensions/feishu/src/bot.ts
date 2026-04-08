@@ -42,7 +42,10 @@ import {
   resolveFeishuAllowlistMatch,
   isFeishuGroupAllowed,
 } from "./policy.js";
-import { resolveFeishuRealPersonAuthGate } from "./real-person-auth.js";
+import {
+  checkFeishuRealPersonAuthStatus,
+  resolveFeishuRealPersonAuthGate,
+} from "./real-person-auth.js";
 import { createFeishuReplyDispatcher } from "./reply-dispatcher.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu, listFeishuThreadMessages, sendMessageFeishu } from "./send.js";
@@ -56,6 +59,32 @@ export { toMessageResourceType } from "./bot-content.js";
 // Key: appId or "default", Value: timestamp of last notification
 const permissionErrorNotifiedAt = new Map<string, number>();
 const PERMISSION_ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+const REAL_PERSON_AUTH_POLL_INTERVAL_MS = 2_000;
+const REAL_PERSON_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
+
+type PendingAuthReplay = {
+  cfg: ClawdbotConfig;
+  event: FeishuMessageEvent;
+  botOpenId?: string;
+  botName?: string;
+  runtime?: RuntimeEnv;
+  chatHistories?: Map<string, HistoryEntry[]>;
+  accountId?: string;
+};
+
+const pendingAuthReplayByKey = new Map<string, PendingAuthReplay>();
+const activeAuthPollByKey = new Map<string, Promise<void>>();
+
+function buildAuthReplayKey(accountId: string, senderId: string): string {
+  return `${accountId}:${senderId}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 export type FeishuMessageEvent = {
   sender: {
     sender_id: {
@@ -229,6 +258,8 @@ export async function handleFeishuMessage(params: {
   chatHistories?: Map<string, HistoryEntry[]>;
   accountId?: string;
   processingClaimHeld?: boolean;
+  skipDedupe?: boolean;
+  skipRealPersonAuth?: boolean;
 }): Promise<void> {
   const {
     cfg,
@@ -239,6 +270,8 @@ export async function handleFeishuMessage(params: {
     chatHistories,
     accountId,
     processingClaimHeld = false,
+    skipDedupe = false,
+    skipRealPersonAuth = false,
   } = params;
 
   // Resolve account with merged config
@@ -249,16 +282,18 @@ export async function handleFeishuMessage(params: {
   const error = runtime?.error ?? console.error;
 
   const messageId = event.message.message_id;
-  if (
-    !(await finalizeFeishuMessageProcessing({
-      messageId,
-      namespace: account.accountId,
-      log,
-      claimHeld: processingClaimHeld,
-    }))
-  ) {
-    log(`feishu: skipping duplicate message ${messageId}`);
-    return;
+  if (!skipDedupe) {
+    if (
+      !(await finalizeFeishuMessageProcessing({
+        messageId,
+        namespace: account.accountId,
+        log,
+        claimHeld: processingClaimHeld,
+      }))
+    ) {
+      log(`feishu: skipping duplicate message ${messageId}`);
+      return;
+    }
   }
 
   let ctx = parseFeishuMessageEvent(event, botOpenId, botName);
@@ -299,7 +334,17 @@ export async function handleFeishuMessage(params: {
     });
   };
 
-  if (ctx.chatType === "p2p" && senderIdForAuth && senderIdForAuth !== botOpenId) {
+  const requiresRealPersonAuth = !skipRealPersonAuth && (ctx.chatType === "p2p" || ctx.chatType === "private") &&
+    senderIdForAuth &&
+    senderIdForAuth !== botOpenId;
+
+  // Debug log for real-person auth
+  log(
+    `feishu[${account.accountId}]: auth check - chatType=${ctx.chatType}, senderIdForAuth=${senderIdForAuth}, botOpenId=${botOpenId}, requiresRealPersonAuth=${requiresRealPersonAuth}, hasSender=${!!senderIdForAuth}, notSelf=${senderIdForAuth !== botOpenId}`,
+  );
+
+  if (requiresRealPersonAuth) {
+    log(`feishu[${account.accountId}]: checking real-person auth for ${senderIdForAuth}`);
     const gate = await resolveFeishuRealPersonAuthGate({
       accountId: account.accountId,
       senderId: senderIdForAuth,
@@ -307,6 +352,71 @@ export async function handleFeishuMessage(params: {
       error,
     });
     if (gate.action === "block") {
+      const replayKey = buildAuthReplayKey(account.accountId, senderIdForAuth);
+      pendingAuthReplayByKey.set(replayKey, {
+        cfg,
+        event,
+        botOpenId,
+        botName,
+        runtime,
+        chatHistories,
+        accountId: account.accountId,
+      });
+      if (!activeAuthPollByKey.has(replayKey)) {
+        const pollPromise = (async () => {
+          const startedAt = Date.now();
+          while (Date.now() - startedAt < REAL_PERSON_AUTH_POLL_TIMEOUT_MS) {
+            await sleep(REAL_PERSON_AUTH_POLL_INTERVAL_MS);
+            try {
+              const status = await checkFeishuRealPersonAuthStatus({
+                accountId: account.accountId,
+                senderId: senderIdForAuth,
+                log,
+                error,
+              });
+              log(
+                `feishu[${account.accountId}]: real-person auth poll status for ${senderIdForAuth}: ${status.status}`,
+              );
+              if (status.status === "pending") {
+                continue;
+              }
+              if (status.status === "success") {
+                const pending = pendingAuthReplayByKey.get(replayKey);
+                pendingAuthReplayByKey.delete(replayKey);
+                if (pending) {
+                  await sendAuthSuccess();
+                  await handleFeishuMessage({
+                    ...pending,
+                    skipDedupe: true,
+                    skipRealPersonAuth: true,
+                  });
+                }
+                return;
+              }
+              pendingAuthReplayByKey.delete(replayKey);
+              return;
+            } catch (pollErr) {
+              log(
+                `feishu[${account.accountId}]: real-person auth poll retry for ${senderIdForAuth} after error: ${
+                  pollErr instanceof Error ? pollErr.message : String(pollErr)
+                }`,
+              );
+              error(
+                `feishu[${account.accountId}]: real-person auth polling failed for ${senderIdForAuth}`,
+                pollErr,
+              );
+              continue;
+            }
+          }
+          log(
+            `feishu[${account.accountId}]: real-person auth poll timeout for ${senderIdForAuth}; keeping gate pending`,
+          );
+          pendingAuthReplayByKey.delete(replayKey);
+        })().finally(() => {
+          activeAuthPollByKey.delete(replayKey);
+        });
+        activeAuthPollByKey.set(replayKey, pollPromise);
+      }
       await sendAuthPrompt(gate.verificationUrl);
       return;
     }
