@@ -318,6 +318,7 @@ export class BehaviorDetector {
     content: string,
   ): Promise<ContentScanResult | null> {
     if (!this.coreCredentials) return null;
+    const state = this.getOrCreate(sessionKey);
 
     // Limit content size (max 100KB to avoid timeout)
     const maxSize = 100 * 1024;
@@ -337,6 +338,8 @@ export class BehaviorDetector {
           content: truncatedContent,
           toolName,
           sessionKey,
+          runId: state.runId,
+          userIntent: state.userIntent,
           meta: {
             machineId: machineInfo.machineId,
             machineName: machineInfo.machineName,
