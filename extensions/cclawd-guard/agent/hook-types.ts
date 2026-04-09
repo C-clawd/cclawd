@@ -381,6 +381,8 @@ export type EventStreamRequest = {
   meta: {
     pluginVersion: string;
     clientTimestamp: string;
+    machineId?: string;
+    machineName?: string;
   };
 };
 

@@ -19,6 +19,7 @@ import type {
   isBlockingHook,
 } from "./hook-types.js";
 import { sanitizeContent } from "./sanitizer.js";
+import { getMachineInfo } from "./machine-id.js";
 
 // =============================================================================
 // Constants
@@ -35,6 +36,7 @@ const MAX_BATCH_SIZE = 50;
 
 /** Timeout for Core API calls */
 const API_TIMEOUT_MS = 3000;
+const machineInfo = getMachineInfo();
 
 // =============================================================================
 // Block Decision Type
@@ -173,6 +175,8 @@ export class EventReporter {
       meta: {
         pluginVersion: this.config.pluginVersion,
         clientTimestamp: new Date().toISOString(),
+        machineId: machineInfo.machineId,
+        machineName: machineInfo.machineName,
       },
     };
 
@@ -311,6 +315,8 @@ export class EventReporter {
       meta: {
         pluginVersion: this.config.pluginVersion,
         clientTimestamp: new Date().toISOString(),
+        machineId: machineInfo.machineId,
+        machineName: machineInfo.machineName,
       },
     };
 

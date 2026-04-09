@@ -20,6 +20,7 @@ import type {
   DetectionFinding,
 } from "./types.js";
 import { sanitizeContent } from "./sanitizer.js";
+import { getMachineInfo } from "./machine-id.js";
 
 // =============================================================================
 // Tool Sets — used to decide whether to send a tool call to Core
@@ -61,6 +62,7 @@ interface SessionState {
 
 /** Module-level secret detection callback (set by BehaviorDetector) */
 let secretDetectionCallback: ((typeCounts: Record<string, number>) => void) | null = null;
+const machineInfo = getMachineInfo();
 
 function sanitizeParams(params: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = {};
@@ -236,6 +238,8 @@ export class BehaviorDetector {
       meta: {
         pluginVersion: this.config.pluginVersion,
         clientTimestamp: new Date().toISOString(),
+        machineId: machineInfo.machineId,
+        machineName: machineInfo.machineName,
       },
     };
 
@@ -333,6 +337,12 @@ export class BehaviorDetector {
           content: truncatedContent,
           toolName,
           sessionKey,
+          meta: {
+            machineId: machineInfo.machineId,
+            machineName: machineInfo.machineName,
+            pluginVersion: this.config.pluginVersion,
+            clientTimestamp: new Date().toISOString(),
+          },
         }),
         signal: controller.signal,
       });

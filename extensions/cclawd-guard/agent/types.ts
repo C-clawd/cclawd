@@ -170,6 +170,8 @@ export type BehaviorAssessRequest = {
   meta: {
     pluginVersion: string;
     clientTimestamp: string; // ISO 8601
+    machineId?: string;
+    machineName?: string;
   };
 };
 

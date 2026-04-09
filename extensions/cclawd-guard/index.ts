@@ -26,13 +26,12 @@ import {
   type CoreCredentials,
   type RegisterResult,
 } from "./agent/config.js";
-import { BehaviorDetector, FILE_READ_TOOLS, WEB_FETCH_TOOLS, type QuotaExceededInfo } from "./agent/behavior-detector.js";
+import { BehaviorDetector, type QuotaExceededInfo } from "./agent/behavior-detector.js";
 import { EventReporter } from "./agent/event-reporter.js";
-import { BusinessReporter } from "./agent/business-reporter.js";
 import { ConfigSync, type BusinessConfig } from "./agent/config-sync.js";
 import { isBlockingHook, type HookType } from "./agent/hook-types.js";
 import { DashboardClient } from "./platform-client/index.js";
-import { enableGateway, disableGateway, getGatewayStatus, startGateway, stopGateway, setDashboardPort, setGatewayActivityCallback } from "./agent/gateway-manager.js";
+import { enableGateway, disableGateway, getGatewayStatus, startGateway, stopGateway, setDashboardPort } from "./agent/gateway-manager.js";
 import { FileWatcher } from "./agent/file-watcher.js";
 import fs from "node:fs";
 import os from "node:os";
@@ -70,17 +69,6 @@ function debugLog(msg: string): void {
 // =============================================================================
 // API Helpers
 // =============================================================================
-
-/** Infer tool category from tool name for business reporting */
-function inferToolCategory(toolName: string): string {
-  const name = toolName.toLowerCase();
-  if (FILE_READ_TOOLS.has(toolName) || FILE_READ_TOOLS.has(name)) return "file_read";
-  if (WEB_FETCH_TOOLS.has(toolName) || WEB_FETCH_TOOLS.has(name)) return "web_fetch";
-  if (["bash", "shell", "run_command", "execute"].some((t) => name.includes(t))) return "shell";
-  if (["write", "edit", "create_file", "delete"].some((t) => name.includes(t))) return "file_write";
-  if (name.includes("agent") || name.includes("subagent")) return "agent";
-  return "other";
-}
 
 /**
  * Replace all injection matches in `text` with `__REDACTED_BY_CCLAWD_GUARD_DUE_TO_{riskType}__`.
@@ -227,7 +215,6 @@ function createLogger(baseLogger: Logger): Logger {
 let globalCoreCredentials: CoreCredentials | null = null;
 let globalBehaviorDetector: BehaviorDetector | null = null;
 let globalEventReporter: EventReporter | null = null;
-let globalBusinessReporter: BusinessReporter | null = null;
 let globalConfigSync: ConfigSync | null = null;
 let globalDashboardClient: DashboardClient | null = null;
 let globalFileWatcher: FileWatcher | null = null;
@@ -585,7 +572,7 @@ const openClawGuardPlugin = {
     initPersonalDashboard(config.coreUrl);
 
     // ── Business plan initialization ───────────────────────────────
-    // Check account plan and initialize BusinessReporter + ConfigSync if business.
+    // Check account plan and initialize ConfigSync if business.
 
     async function initBusinessFeatures(coreUrl: string): Promise<void> {
       debugLog(`initBusinessFeatures: called, credentials=${!!globalCoreCredentials}, isEnterprise=${isEnterprise}`);
@@ -607,39 +594,6 @@ const openClawGuardPlugin = {
           debugLog(`initBusinessFeatures: plan is not business, skipping`);
           log.debug?.(`Account plan is "${plan}", business features not enabled`);
           return;
-        }
-
-        // Initialize BusinessReporter
-        if (!globalBusinessReporter) {
-          globalBusinessReporter = new BusinessReporter(
-            { coreUrl, pluginVersion: PLUGIN_VERSION },
-            log,
-          );
-          globalBusinessReporter.setCredentials(globalCoreCredentials);
-
-          // Set profile from workspace
-          const profile = readAgentProfile();
-          globalBusinessReporter.setProfile({
-            ownerName: profile.ownerName,
-            agentName: config.agentName,
-            provider: profile.provider,
-            model: profile.model,
-          });
-
-          globalBusinessReporter.initialize(plan);
-          debugLog(`BusinessReporter initialized, enabled=${globalBusinessReporter.isEnabled()}`);
-
-          // Wire gateway activity to business reporter
-          if (globalBusinessReporter.isEnabled()) {
-            setGatewayActivityCallback((redactionCount, typeCounts) => {
-              globalBusinessReporter?.recordGatewayActivity(redactionCount, typeCounts);
-            });
-
-            // Wire secret detection to business reporter
-            globalBehaviorDetector?.setOnSecretDetected((typeCounts) => {
-              globalBusinessReporter?.recordSecretDetection(typeCounts);
-            });
-          }
         }
 
         // Initialize ConfigSync
@@ -753,9 +707,6 @@ const openClawGuardPlugin = {
         durationMs: (event as any).durationMs,
       });
 
-      // Report session end to business reporter
-      globalBusinessReporter?.recordSession("end", (event as any).durationMs);
-
       globalBehaviorDetector?.clearSession(sessionKey);
       globalEventReporter?.clearSession(sessionKey);
     });
@@ -797,13 +748,6 @@ const openClawGuardPlugin = {
       }
 
       if (blocked) {
-        // Report blocked tool call to business reporter
-        globalBusinessReporter?.recordToolCall(
-          event.toolName,
-          inferToolCategory(event.toolName),
-          0,
-          true,
-        );
         // Record blocked call for local agentic hours
         globalDashboardClient?.recordToolCallDuration(0, true);
         return { block: true, blockReason };
@@ -897,18 +841,6 @@ const openClawGuardPlugin = {
                 `Core: injection detected in "${event.toolName}" result: ${scanResult.summary}`,
               );
 
-              // Report detection to business reporter
-              globalBusinessReporter?.recordDetection(
-                scanResult.detected ? "high" : "no_risk",
-                false,
-                scanResult.summary,
-              );
-              // Report dynamic scan result to business reporter
-              globalBusinessReporter?.recordScanResult(
-                "dynamic",
-                scanResult.categories ?? [],
-                true,
-              );
               // Record risk event for local agentic hours
               globalDashboardClient?.recordRiskEvent();
             }
@@ -964,14 +896,7 @@ const openClawGuardPlugin = {
           });
       }
 
-      // Report tool call to business reporter (with duration and category)
-      debugLog(`after_tool_call: tool=${event.toolName} durationMs=${event.durationMs} dashboardClient=${!!globalDashboardClient} businessReporter=${!!globalBusinessReporter} businessEnabled=${globalBusinessReporter?.isEnabled()}`);
-      globalBusinessReporter?.recordToolCall(
-        event.toolName,
-        inferToolCategory(event.toolName),
-        event.durationMs ?? 0,
-        false, // not blocked (blocked calls don't reach after_tool_call)
-      );
+      debugLog(`after_tool_call: tool=${event.toolName} durationMs=${event.durationMs} dashboardClient=${!!globalDashboardClient}`);
 
       // Record tool call duration for local agentic hours
       globalDashboardClient?.recordToolCallDuration(event.durationMs ?? 0);
@@ -1012,9 +937,7 @@ const openClawGuardPlugin = {
         isNew: event?.isNew ?? true,
       });
 
-      // Report session start to business reporter
-      debugLog(`session_start: sessionKey=${sessionKey} dashboardClient=${!!globalDashboardClient} businessReporter=${!!globalBusinessReporter}`);
-      globalBusinessReporter?.recordSession("start");
+      debugLog(`session_start: sessionKey=${sessionKey} dashboardClient=${!!globalDashboardClient}`);
 
       // Record session start for local agentic hours
       globalDashboardClient?.recordSessionStart();
@@ -1083,10 +1006,8 @@ const openClawGuardPlugin = {
         stopReason: event?.stopReason ?? event?.stop_reason,
       });
 
-      // Report LLM call to business reporter
-      debugLog(`llm_output: model=${event?.model} latencyMs=${event?.latencyMs} durationMs=${event?.durationMs} computed=${llmDuration} dashboardClient=${!!globalDashboardClient} businessReporter=${!!globalBusinessReporter}`);
+      debugLog(`llm_output: model=${event?.model} latencyMs=${event?.latencyMs} durationMs=${event?.durationMs} computed=${llmDuration} dashboardClient=${!!globalDashboardClient}`);
       if (llmDuration > 0) {
-        globalBusinessReporter?.recordLlmCall(llmDuration, event?.model);
         // Record LLM duration for local agentic hours
         globalDashboardClient?.recordLlmDuration(llmDuration);
       }
@@ -1800,17 +1721,6 @@ const openClawGuardPlugin = {
               log.warn("Dashboard client not initialized - scan results not reported to dashboard");
             }
 
-            // Report static scan results to business reporter
-            if (globalBusinessReporter && batchResult.results) {
-              for (const fileResult of batchResult.results) {
-                const categories = fileResult.findings?.map((f: any) => f.scanner) ?? [];
-                globalBusinessReporter.recordScanResult(
-                  "static",
-                  categories,
-                  fileResult.riskLevel !== "safe",
-                );
-              }
-            }
           }
 
           // Combine results from all batches
@@ -1952,12 +1862,6 @@ const openClawGuardPlugin = {
               if (riskCount > 0) log.info(`Auto-scan found ${riskCount} file(s) with security risks`);
             }
 
-            if (globalBusinessReporter && result.results) {
-              for (const fileResult of result.results) {
-                const categories = fileResult.findings?.map((f: any) => f.scanner) ?? [];
-                globalBusinessReporter.recordScanResult("static", categories, fileResult.riskLevel !== "safe");
-              }
-            }
           } catch (err) {
             log.debug?.(`Auto-scan failed: ${err}`);
           }
@@ -2144,12 +2048,6 @@ const openClawGuardPlugin = {
     if (globalEventReporter) {
       await globalEventReporter.stop();
       globalEventReporter = null;
-    }
-
-    // Stop business reporter (flush remaining telemetry)
-    if (globalBusinessReporter) {
-      await globalBusinessReporter.stop();
-      globalBusinessReporter = null;
     }
 
     // Stop config sync
