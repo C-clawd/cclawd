@@ -386,59 +386,94 @@ const openClawGuardPlugin = {
     }
 
     if (!globalCoreCredentials) {
+      const activateCredentials = (credentials: CoreCredentials): void => {
+        globalCoreCredentials = credentials;
+        globalBehaviorDetector?.setCredentials(credentials);
+        globalEventReporter?.setCredentials(credentials);
+      };
+
+      const autoRegisterWithCore = (): void => {
+        // Auto-register on first load; agent is immediately usable with autonomous quota.
+        log.info("Platform: auto-registering...");
+        debugLog(`registerWithCore(${config.agentName}, coreUrl=${config.coreUrl})`);
+        registerWithCore(
+          config.agentName,
+          "OpenClaw AI Agent secured by CClawd Guard",
+          config.coreUrl,
+        )
+          .then((result) => {
+            debugLog(`registerWithCore SUCCESS: agentId=${result.credentials.agentId} apiKey=${result.credentials.apiKey?.slice(0,10)}...`);
+            lastRegisterResult = result;
+            activateCredentials(result.credentials);
+
+            // Start personal dashboard (auto-starts local dashboard and connects to it)
+            initPersonalDashboard(config.coreUrl);
+
+            // Check for business plan features
+            initBusinessFeatures(config.coreUrl);
+
+            // Agent is immediately active
+            log.info(isEnterprise
+              ? "Platform: registered (enterprise mode, unlimited quota)"
+              : "Platform: registered (autonomous mode, 500/day quota)");
+            startAutoScan();
+          })
+          .catch((err) => {
+            debugLog(`registerWithCore FAILED: ${err}`);
+            log.warn(`Platform: auto-registration failed - ${err}`);
+            log.info("Platform: local protections still active");
+          });
+      };
+
       if (config.apiKey) {
-        globalCoreCredentials = {
+        const configuredCredentials: CoreCredentials = {
           apiKey: config.apiKey,
           agentId: "configured",
           claimUrl: "",
           verificationCode: "",
         };
-        globalBehaviorDetector.setCredentials(globalCoreCredentials);
-        globalEventReporter?.setCredentials(globalCoreCredentials);
+        activateCredentials(configuredCredentials);
         log.info("Platform: using configured API key");
         startAutoScan();
       } else {
         debugLog(`loadCoreCredentials(${config.coreUrl}) called`);
-        globalCoreCredentials = loadCoreCredentials(config.coreUrl);
-        debugLog(`loadCoreCredentials result: ${globalCoreCredentials ? `apiKey=${globalCoreCredentials.apiKey?.slice(0,10)}... agentId=${globalCoreCredentials.agentId} coreUrl=${globalCoreCredentials.coreUrl}` : "null"}`);
-        if (globalCoreCredentials) {
-          globalBehaviorDetector.setCredentials(globalCoreCredentials);
-          globalEventReporter?.setCredentials(globalCoreCredentials);
-          const mode = globalCoreCredentials.email ? "human managed" : "autonomous";
-          log.info(`Platform: active (${mode} mode)`);
-          startAutoScan();
+        const savedCredentials = loadCoreCredentials(config.coreUrl);
+        debugLog(`loadCoreCredentials result: ${savedCredentials ? `apiKey=${savedCredentials.apiKey?.slice(0,10)}... agentId=${savedCredentials.agentId} coreUrl=${savedCredentials.coreUrl}` : "null"}`);
+
+        if (!savedCredentials) {
+          autoRegisterWithCore();
         } else {
-          // Auto-register on first load — agent is immediately usable with autonomous quota
-          log.info("Platform: auto-registering...");
-          debugLog(`registerWithCore(${config.agentName}, coreUrl=${config.coreUrl})`);
-          registerWithCore(
-            config.agentName,
-            "OpenClaw AI Agent secured by CClawd Guard",
-            config.coreUrl,
-          )
-            .then((result) => {
-              debugLog(`registerWithCore SUCCESS: agentId=${result.credentials.agentId} apiKey=${result.credentials.apiKey?.slice(0,10)}...`);
-              lastRegisterResult = result;
-              globalCoreCredentials = result.credentials;
-              globalBehaviorDetector!.setCredentials(result.credentials);
-              globalEventReporter?.setCredentials(result.credentials);
+          log.info("Platform: validating saved credentials...");
+          validateApiKey(savedCredentials.apiKey, config.coreUrl)
+            .then((validation) => {
+              if (validation.valid) {
+                if (validation.agentId && validation.agentId !== savedCredentials.agentId) {
+                  savedCredentials.agentId = validation.agentId;
+                  saveCoreCredentials(savedCredentials, config.coreUrl);
+                }
+                activateCredentials(savedCredentials);
+                const mode = savedCredentials.email ? "human managed" : "autonomous";
+                log.info(`Platform: active (${mode} mode)`);
+                startAutoScan();
+                return;
+              }
 
-              // Start personal dashboard (auto-starts local dashboard and connects to it)
-              initPersonalDashboard(config.coreUrl);
-
-              // Check for business plan features
-              initBusinessFeatures(config.coreUrl);
-
-              // Agent is immediately active
-              log.info(isEnterprise
-                ? "Platform: registered (enterprise mode, unlimited quota)"
-                : "Platform: registered (autonomous mode, 500/day quota)");
-              startAutoScan();
+              debugLog(`saved credentials invalid: ${validation.error ?? "unknown"}`);
+              log.warn("Platform: saved credentials are invalid, re-registering with Core");
+              deleteCoreCredentials();
+              globalCoreCredentials = null;
+              globalBehaviorDetector?.setCredentials(null);
+              globalEventReporter?.setCredentials(null);
+              autoRegisterWithCore();
             })
             .catch((err) => {
-              debugLog(`registerWithCore FAILED: ${err}`);
-              log.warn(`Platform: auto-registration failed — ${err}`);
-              log.info("Platform: local protections still active");
+              debugLog(`validateApiKey FAILED: ${err}`);
+              log.warn("Platform: failed to validate saved credentials, re-registering with Core");
+              deleteCoreCredentials();
+              globalCoreCredentials = null;
+              globalBehaviorDetector?.setCredentials(null);
+              globalEventReporter?.setCredentials(null);
+              autoRegisterWithCore();
             });
         }
       }
