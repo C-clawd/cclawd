@@ -14,6 +14,7 @@ import { loadConfig, validateConfig, findBackendByApiKey, findDefaultBackend, fi
 import type { GatewayConfig, BackendConfig, ApiType } from "./types.js";
 import { handleAnthropicRequest } from "./handlers/anthropic.js";
 import { handleOpenAIRequest } from "./handlers/openai.js";
+import { handleOpenResponsesRequest } from "./handlers/openresponses.js";
 import { handleGeminiRequest } from "./handlers/gemini.js";
 import { handleModelsRequest } from "./handlers/models.js";
 
@@ -173,6 +174,47 @@ async function handleRequest(
         extraHeaders["X-Title"] = backend.title;
       }
       await handleOpenAIRequest(req, res, backend, extraHeaders);
+    } else if (url?.endsWith("/responses")) {
+      // OpenAI/OpenRouter Responses API
+      // Try to extract backend name from URL: /backend/{name}/responses
+      const backendMatch = url.match(/^\/backend\/([^/]+)\//);
+      let resolved: { name: string; backend: BackendConfig } | null = null;
+
+      if (backendMatch) {
+        const backendName = backendMatch[1];
+        const backend = config.backends[backendName];
+        if (backend) {
+          resolved = { name: backendName, backend };
+          console.log(`[ai-security-gateway] Backend from URL: ${backendName}`);
+        }
+      }
+
+      // Fallback to path prefix or default OpenAI-compatible backend
+      if (!resolved) {
+        resolved = resolveBackend(req, "openai");
+        console.log(`[ai-security-gateway] Resolved backend: ${resolved?.name}`);
+      }
+
+      // Check explicit routing config
+      const explicitBackendName = config.routing?.["/v1/responses"];
+      const backend = explicitBackendName
+        ? config.backends[explicitBackendName]
+        : resolved?.backend;
+
+      if (!backend) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "No OpenAI-compatible backend configured" }));
+        return;
+      }
+
+      const extraHeaders: Record<string, string> = {};
+      if (backend.referer) {
+        extraHeaders["HTTP-Referer"] = backend.referer;
+      }
+      if (backend.title) {
+        extraHeaders["X-Title"] = backend.title;
+      }
+      await handleOpenResponsesRequest(req, res, backend, extraHeaders);
     } else if (url?.match(/\/models\/(.+):generateContent$/)) {
       // Gemini API (matches any path ending with /models/{model}:generateContent)
       const match = url.match(/\/models\/(.+):generateContent$/);
@@ -280,6 +322,7 @@ export function startGateway(configPath?: string, embedded = false): void {
         console.log("Endpoints:");
         console.log(`  POST http://127.0.0.1:${config.port}/v1/messages - Anthropic`);
         console.log(`  POST http://127.0.0.1:${config.port}/v1/chat/completions - OpenAI / OpenRouter`);
+        console.log(`  POST http://127.0.0.1:${config.port}/v1/responses - OpenAI Responses`);
         console.log(`  POST http://127.0.0.1:${config.port}/v1/models/:model:generateContent - Gemini`);
         console.log(`  GET  http://127.0.0.1:${config.port}/v1/models - List models (OpenAI / OpenRouter)`);
         console.log(`  GET  http://127.0.0.1:${config.port}/health - Health check`);
