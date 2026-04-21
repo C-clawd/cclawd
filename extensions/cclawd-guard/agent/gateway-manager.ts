@@ -98,6 +98,40 @@ function resolveApiKey(providerName: string, placeholder: string): string {
 }
 
 /**
+ * Resolve provider API key from explicit config and/or auth-profiles.json.
+ */
+function resolveProviderApiKey(providerName: string, configuredApiKey: unknown): string | undefined {
+  if (typeof configuredApiKey === "string" && configuredApiKey.trim().length > 0) {
+    const resolved = resolveApiKey(providerName, configuredApiKey.trim());
+    if (typeof resolved === "string" && resolved.trim().length > 0) {
+      return resolved.trim();
+    }
+  }
+
+  const authProfiles = loadAuthProfiles("main");
+  if (!authProfiles?.profiles) {
+    return undefined;
+  }
+
+  const profileKey = `${providerName}:default`;
+  const profile = authProfiles.profiles[profileKey];
+  if (profile?.type === "api_key" && typeof profile.key === "string" && profile.key.trim().length > 0) {
+    return profile.key.trim();
+  }
+
+  const directProfile = authProfiles.profiles[providerName];
+  if (
+    directProfile?.type === "api_key" &&
+    typeof directProfile.key === "string" &&
+    directProfile.key.trim().length > 0
+  ) {
+    return directProfile.key.trim();
+  }
+
+  return undefined;
+}
+
+/**
  * Convert original baseUrl to gateway URL using backend name as identifier
  * e.g., providerName="vllm" -> http://127.0.0.1:53669/backend/vllm
  */
@@ -282,6 +316,10 @@ export async function startGateway(): Promise<void> {
     writeFileSync(GATEWAY_CONFIG, JSON.stringify(defaultConfig, null, 2) + "\n", "utf-8");
   }
 
+  // Self-heal: if gateway is enabled but gateway.json lost backend entries,
+  // recover from gateway-backup.json + provider auth profiles.
+  tryRepairGatewayConfigFromBackup();
+
   // Register activity listener once
   if (!activityListenerRegistered) {
     addActivityListener((event) => {
@@ -436,6 +474,67 @@ function configureGateway(providers: Record<string, ProviderConfig>): void {
 }
 
 /**
+ * Self-heal gateway config if backends are empty while gateway backup exists.
+ * This can happen when gateway.json is recreated with defaults after deletion.
+ */
+function tryRepairGatewayConfigFromBackup(): boolean {
+  if (!existsSync(GATEWAY_BACKUP) || !existsSync(GATEWAY_CONFIG)) {
+    return false;
+  }
+
+  let rawGatewayConfig: { backends?: Record<string, unknown> } | null = null;
+  try {
+    rawGatewayConfig = loadJsonSync(GATEWAY_CONFIG);
+  } catch {
+    return false;
+  }
+  const hasBackends = rawGatewayConfig?.backends && Object.keys(rawGatewayConfig.backends).length > 0;
+  if (hasBackends) {
+    return false;
+  }
+
+  let backup: GatewayBackup | null = null;
+  try {
+    backup = loadJsonSync(GATEWAY_BACKUP);
+  } catch {
+    return false;
+  }
+
+  const routedProviderNames = Object.keys(backup?.routedProviders ?? {});
+  if (routedProviderNames.length === 0) {
+    return false;
+  }
+
+  const cfg = readOpenClawConfig();
+  const currentProviders = cfg.models?.providers ?? {};
+  const recoveredProviders: Record<string, ProviderConfig> = {};
+
+  for (const name of routedProviderNames) {
+    const originalBaseUrl = backup?.routedProviders?.[name]?.originalBaseUrl;
+    if (typeof originalBaseUrl !== "string" || originalBaseUrl.trim().length === 0) {
+      continue;
+    }
+    const currentProvider = currentProviders[name] ?? {};
+    const resolvedApiKey = resolveProviderApiKey(name, currentProvider.apiKey);
+    if (!resolvedApiKey) {
+      continue;
+    }
+    recoveredProviders[name] = {
+      ...currentProvider,
+      baseUrl: originalBaseUrl.trim(),
+      apiKey: resolvedApiKey,
+    };
+  }
+
+  if (Object.keys(recoveredProviders).length === 0) {
+    return false;
+  }
+
+  configureGateway(recoveredProviders);
+  return true;
+}
+
+/**
  * Find all agent models.json files
  */
 function findAgentModelsFiles(): string[] {
@@ -482,7 +581,10 @@ function writeModelsJson(filePath: string, data: unknown): void {
  * Update provider baseUrls in all agent models.json files
  * Converts each provider's baseUrl to gateway URL while preserving the path
  */
-function updateAgentModelsFiles(backupData: Record<string, { files: string[]; originalBaseUrls: Record<string, string> }>): void {
+function updateAgentModelsFiles(
+  backupData: Record<string, { files: string[]; originalBaseUrls: Record<string, string> }>,
+  collectedProviders?: Record<string, ProviderConfig>,
+): void {
   const modelsFiles = findAgentModelsFiles();
 
   for (const filePath of modelsFiles) {
@@ -496,6 +598,11 @@ function updateAgentModelsFiles(backupData: Record<string, { files: string[]; or
       // Skip if already pointing to gateway or no baseUrl
       if (!provider.baseUrl || isGatewayUrl(provider.baseUrl)) {
         continue;
+      }
+      // Collect original provider configs from agent models so gateway has matching backends.
+      // This covers providers that exist only in agent-level models.json (not openclaw.json).
+      if (collectedProviders && !collectedProviders[name]) {
+        collectedProviders[name] = { ...provider };
       }
       fileBackup[name] = provider.baseUrl;
       provider.baseUrl = toGatewayUrl(name);
@@ -598,47 +705,32 @@ export async function enableGateway(): Promise<{ providers: string[]; warnings: 
     routedProviders.push(name);
   }
 
-  // If all providers are already pointing to gateway, treat as "already enabled"
+  // If all providers are already pointing to gateway, we cannot safely reconstruct
+  // original upstream URLs here. Refuse to synthesize a fake backup.
   if (routedProviders.length === 0 && skipped.length > 0) {
-    // Create a minimal backup to mark gateway as enabled
-    mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
-    const minimalBackup: GatewayBackup = {
-      timestamp: new Date().toISOString(),
-      routedProviders: {},
-    };
-    // Mark skipped providers as routed (we don't know original URLs)
-    for (const name of skipped) {
-      minimalBackup.routedProviders[name] = {
-        originalBaseUrl: GATEWAY_SERVER_URL, // Can't restore, but mark as managed
-      };
-    }
-    writeFileSync(GATEWAY_BACKUP, JSON.stringify(minimalBackup, null, 2) + "\n", "utf-8");
-
-    // Restart gateway to ensure it's running
-    await restartGateway();
-
-    return {
-      providers: skipped,
-      warnings: ["Providers were already pointing to gateway. Gateway is now marked as enabled."],
-    };
+    throw new Error(
+      "Providers already point to gateway but no recoverable routing backup exists. " +
+      "Restore provider baseUrl/apiKey to upstream values first, then enable gateway again.",
+    );
   }
 
   if (routedProviders.length === 0) {
     throw new Error("No providers found with baseUrl to route through gateway");
   }
 
-  // Configure gateway with original provider URLs
+  // Also update agent models.json files and collect any provider configs that only
+  // exist in agent-level models.json so backend resolution remains complete.
+  const agentModelsBackup: Record<string, { files: string[]; originalBaseUrls: Record<string, string> }> = {};
+  updateAgentModelsFiles(agentModelsBackup, originalProviders);
+  if (Object.keys(agentModelsBackup).length > 0) {
+    backup.agentModelsBackup = agentModelsBackup;
+  }
+
+  // Configure gateway with all original provider URLs (openclaw.json + agent models.json).
   configureGateway(originalProviders);
 
   // Write modified openclaw.json
   writeOpenClawConfig(config);
-
-  // Also update agent models.json files
-  const agentModelsBackup: Record<string, { files: string[]; originalBaseUrls: Record<string, string> }> = {};
-  updateAgentModelsFiles(agentModelsBackup);
-  if (Object.keys(agentModelsBackup).length > 0) {
-    backup.agentModelsBackup = agentModelsBackup;
-  }
 
   // Save backup
   mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
