@@ -7,6 +7,7 @@ const REAL_PERSON_AUTH_API_BASE_URL = "https://cclawd.dbhl.cn";
 const REAL_PERSON_AUTH_H5_BASE_URL = "https://h5.dabby.com.cn";
 const MFA_AUTH_API_KEY = "MFA_AUTH_API_KEY";
 const REAL_PERSON_AUTH_REQUEST_TIMEOUT_MS = 12_000;
+const REAL_PERSON_AUTH_QR_TTL_MS = 5 * 60 * 1_000;
 
 type RealPersonApiResponse = {
   code?: number;
@@ -26,6 +27,7 @@ type RealPersonAuthRecord = {
   authenticated?: boolean;
   certToken?: string;
   successNotified?: boolean;
+  issuedAt?: number;
 };
 
 type RealPersonAuthStore = Record<string, RealPersonAuthRecord>;
@@ -211,6 +213,16 @@ function resolveVerificationUrl(certToken: string): string {
   return `${authH5BaseUrl}/authhtml/index.html#/auth?certToken=${certToken}&fromSource=Cclawd`;
 }
 
+function isRealPersonCertExpired(record: RealPersonAuthRecord | undefined, now = Date.now()): boolean {
+  if (!record?.certToken || record.authenticated) {
+    return false;
+  }
+  if (!Number.isFinite(record.issuedAt)) {
+    return true;
+  }
+  return Number(record.issuedAt) + REAL_PERSON_AUTH_QR_TTL_MS <= now;
+}
+
 export async function checkFeishuRealPersonAuthStatus(
   params: FeishuRealPersonAuthStatusParams,
 ): Promise<FeishuRealPersonAuthStatusResult> {
@@ -228,6 +240,14 @@ export async function checkFeishuRealPersonAuthStatus(
   if (!certToken) {
     return { status: "missing" };
   }
+  if (isRealPersonCertExpired(userAuth)) {
+    authData[params.senderId] = {
+      authenticated: false,
+      successNotified: false,
+    };
+    await writeRealPersonAuthStore(authFilePath, authData);
+    return { status: "failed" };
+  }
 
   const apiKey = resolveMfaApiKey(params.log, params.error);
   params.log(`[real-person-auth] checking auth status for certToken: ${certToken.slice(0, 8)}...`);
@@ -237,6 +257,7 @@ export async function checkFeishuRealPersonAuthStatus(
     authData[params.senderId] = {
       authenticated: true,
       certToken,
+      issuedAt: userAuth.issuedAt,
       // Polling path will send success immediately.
       successNotified: true,
     };
@@ -276,7 +297,8 @@ export async function resolveFeishuRealPersonAuthGate(
       return { action: "allow" };
     }
 
-    if (userAuth?.certToken) {
+    const existingCertExpired = isRealPersonCertExpired(userAuth);
+    if (userAuth?.certToken && !existingCertExpired) {
       params.log(`[real-person-auth] checking auth status for certToken: ${userAuth.certToken.slice(0, 8)}...`);
       const status = await checkAuthStatus(apiKey, userAuth.certToken);
       params.log(`[real-person-auth] auth status: ${status}`);
@@ -285,6 +307,7 @@ export async function resolveFeishuRealPersonAuthGate(
         authData[params.senderId] = {
           authenticated: true,
           certToken: userAuth.certToken,
+          issuedAt: userAuth.issuedAt,
           successNotified: true,
         };
         await writeRealPersonAuthStore(authFilePath, authData);
@@ -299,6 +322,9 @@ export async function resolveFeishuRealPersonAuthGate(
         };
       }
     }
+    if (existingCertExpired) {
+      params.log(`[real-person-auth] existing certToken expired for ${params.senderId}, requesting a new QR code`);
+    }
 
     params.log("[real-person-auth] calling getVerifyCode API...");
     const { certToken } = await getVerifyCode(apiKey);
@@ -307,6 +333,7 @@ export async function resolveFeishuRealPersonAuthGate(
     authData[params.senderId] = {
       authenticated: false,
       certToken,
+      issuedAt: Date.now(),
       successNotified: false,
     };
     await writeRealPersonAuthStore(authFilePath, authData);
