@@ -28,6 +28,9 @@ export type MonitorTransportParams = {
   eventDispatcher: Lark.EventDispatcher;
 };
 
+const FEISHU_WS_READY_TIMEOUT_MS = 12_000;
+const FEISHU_WS_READY_POLL_MS = 250;
+
 function isFeishuWebhookPayload(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -81,6 +84,30 @@ function respondText(res: http.ServerResponse, statusCode: number, body: string)
   res.end(body);
 }
 
+async function waitForFeishuWebSocketReady(params: {
+  wsClient: Lark.WSClient;
+  abortSignal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<boolean> {
+  const timeoutMs = params.timeoutMs ?? FEISHU_WS_READY_TIMEOUT_MS;
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (params.abortSignal?.aborted) {
+      return false;
+    }
+    const readyState = (
+      params.wsClient as unknown as {
+        wsConfig?: { getWSInstance?: () => { readyState?: number } | undefined };
+      }
+    ).wsConfig?.getWSInstance?.()?.readyState;
+    if (readyState === 1) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, FEISHU_WS_READY_POLL_MS));
+  }
+  return false;
+}
+
 export async function monitorWebSocket({
   account,
   accountId,
@@ -116,8 +143,19 @@ export async function monitorWebSocket({
     abortSignal?.addEventListener("abort", handleAbort, { once: true });
 
     try {
-      wsClient.start({ eventDispatcher });
-      log(`feishu[${accountId}]: WebSocket client started`);
+      void wsClient.start({ eventDispatcher });
+      const ready = await waitForFeishuWebSocketReady({
+        wsClient,
+        abortSignal,
+      });
+      if (!ready) {
+        wsClient.close({ force: true });
+        cleanup();
+        abortSignal?.removeEventListener("abort", handleAbort);
+        reject(new Error(`Feishu WebSocket did not become ready within ${FEISHU_WS_READY_TIMEOUT_MS}ms`));
+        return;
+      }
+      log(`feishu[${accountId}]: WebSocket client connected`);
     } catch (err) {
       cleanup();
       abortSignal?.removeEventListener("abort", handleAbort);

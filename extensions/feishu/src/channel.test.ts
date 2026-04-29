@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../runtime-api.js";
+import {
+  recordChannelActivity,
+  resetChannelActivityForTest,
+} from "../../../src/infra/channel-activity.js";
 
 const probeFeishuMock = vi.hoisted(() => vi.fn());
 const createFeishuClientMock = vi.hoisted(() => vi.fn());
@@ -60,6 +64,10 @@ vi.mock("./monitor.js", () => ({
 
 import { feishuPlugin } from "./channel.js";
 
+beforeEach(() => {
+  resetChannelActivityForTest();
+});
+
 function getDescribedActions(cfg: OpenClawConfig): string[] {
   return [...(feishuPlugin.actions?.describeMessageTool?.({ cfg })?.actions ?? [])];
 }
@@ -99,6 +107,81 @@ describe("feishuPlugin.status.probeAccount", () => {
       }),
     );
     expect(result).toMatchObject({ ok: true, appId: "cli_main" });
+  });
+});
+
+describe("feishuPlugin.status.buildAccountSnapshot", () => {
+  it("keeps a running account in non-connected state until real traffic exists", async () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          enabled: true,
+          appId: "cli_main",
+          appSecret: "secret_main",
+        },
+      },
+    } as OpenClawConfig;
+
+    const account = feishuPlugin.config.resolveAccount(cfg, "default");
+    const snapshot = await feishuPlugin.status?.buildAccountSnapshot?.({
+      account,
+      cfg,
+      runtime: {
+        running: true,
+        lastStartAt: 100,
+        lastStopAt: null,
+        lastError: null,
+      },
+    } as never);
+
+    expect(snapshot).toMatchObject({
+      accountId: "default",
+      running: true,
+      connected: false,
+      lastConnectedAt: null,
+      lastInboundAt: null,
+      lastOutboundAt: null,
+    });
+  });
+
+  it("marks the account connected after Feishu traffic is observed", async () => {
+    const cfg = {
+      channels: {
+        feishu: {
+          enabled: true,
+          appId: "cli_main",
+          appSecret: "secret_main",
+        },
+      },
+    } as OpenClawConfig;
+
+    recordChannelActivity({
+      channel: "feishu",
+      accountId: "default",
+      direction: "inbound",
+      at: 1234,
+    });
+
+    const account = feishuPlugin.config.resolveAccount(cfg, "default");
+    const snapshot = await feishuPlugin.status?.buildAccountSnapshot?.({
+      account,
+      cfg,
+      runtime: {
+        running: true,
+        lastStartAt: 100,
+        lastStopAt: null,
+        lastError: null,
+      },
+    } as never);
+
+    expect(snapshot).toMatchObject({
+      accountId: "default",
+      running: true,
+      connected: true,
+      lastConnectedAt: 1234,
+      lastInboundAt: 1234,
+      lastOutboundAt: null,
+    });
   });
 });
 

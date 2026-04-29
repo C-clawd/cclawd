@@ -22,6 +22,7 @@ import {
 import { createLazyRuntimeNamedExport } from "openclaw/plugin-sdk/lazy-runtime";
 import { createRuntimeOutboundDelegates } from "openclaw/plugin-sdk/outbound-runtime";
 import { createComputedAccountStatusAdapter } from "openclaw/plugin-sdk/status-helpers";
+import { getChannelActivity } from "../../../src/infra/channel-activity.js";
 import type { ChannelMeta, ChannelPlugin, ClawdbotConfig } from "../runtime-api.js";
 import {
   buildChannelConfigSchema,
@@ -963,17 +964,31 @@ export const feishuPlugin: ChannelPlugin<ResolvedFeishuAccount, FeishuProbeResul
           }),
         probeAccount: async ({ account }) =>
           await (await loadFeishuChannelRuntime()).probeFeishu(account),
-        resolveAccountSnapshot: ({ account, runtime }) => ({
-          accountId: account.accountId,
-          enabled: account.enabled,
-          configured: account.configured,
-          name: account.name,
-          extra: {
-            appId: account.appId,
-            domain: account.domain,
-            port: runtime?.port ?? null,
-          },
-        }),
+        resolveAccountSnapshot: ({ account, runtime }) => {
+          const activity = getChannelActivity({
+            channel: "feishu",
+            accountId: account.accountId,
+          });
+          const timestamps = [activity.inboundAt, activity.outboundAt].filter(
+            (value): value is number => typeof value === "number",
+          );
+          const lastConnectedAt = timestamps.length > 0 ? Math.max(...timestamps) : null;
+          return {
+            accountId: account.accountId,
+            enabled: account.enabled,
+            configured: account.configured,
+            name: account.name,
+            extra: {
+              appId: account.appId,
+              connected: Boolean(runtime?.running) && lastConnectedAt !== null,
+              domain: account.domain,
+              lastConnectedAt,
+              lastInboundAt: activity.inboundAt,
+              lastOutboundAt: activity.outboundAt,
+              port: runtime?.port ?? null,
+            },
+          };
+        },
       }),
       gateway: {
         startAccount: async (ctx) => {

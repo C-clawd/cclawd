@@ -12,6 +12,7 @@ import {
 import { handleFeishuCardAction, type FeishuCardActionEvent } from "./card-action.js";
 import { maybeHandleFeishuQuickActionMenu } from "./card-ux-launcher.js";
 import { createEventDispatcher } from "./client.js";
+import { recordChannelActivity } from "../../../src/infra/channel-activity.js";
 import {
   hasProcessedFeishuMessage,
   recordProcessedFeishuMessage,
@@ -415,6 +416,11 @@ function registerEventHandlers(
         log(`feishu[${accountId}]: dropping duplicate event for message ${messageId}`);
         return;
       }
+      recordChannelActivity({
+        channel: "feishu",
+        accountId,
+        direction: "inbound",
+      });
       const processMessage = async () => {
         await inboundDebouncer.enqueue(event);
       };

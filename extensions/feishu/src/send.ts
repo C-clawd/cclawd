@@ -1,4 +1,5 @@
 import type { ClawdbotConfig } from "../runtime-api.js";
+import { recordChannelActivity } from "../../../src/infra/channel-activity.js";
 import { resolveFeishuAccount } from "./accounts.js";
 import { createFeishuClient } from "./client.js";
 import type { MentionTarget } from "./mention.js";
@@ -25,6 +26,14 @@ const FEISHU_CARD_TEMPLATES = new Set([
   "violet",
   "lime",
 ]);
+
+function recordFeishuOutboundActivity(accountId?: string): void {
+  recordChannelActivity({
+    channel: "feishu",
+    accountId,
+    direction: "outbound",
+  });
+}
 
 function shouldFallbackFromReplyTarget(response: { code?: number; msg?: string }): boolean {
   if (response.code !== undefined && WITHDRAWN_REPLY_ERROR_CODES.has(response.code)) {
@@ -460,7 +469,7 @@ export async function sendMessageFeishu(
   const { content, msgType } = buildFeishuPostMessagePayload({ messageText });
 
   const directParams = { receiveId, receiveIdType, content, msgType };
-  return sendReplyOrFallbackDirect(client, {
+  const result = await sendReplyOrFallbackDirect(client, {
     replyToMessageId,
     replyInThread,
     content,
@@ -469,6 +478,8 @@ export async function sendMessageFeishu(
     directErrorPrefix: "Feishu send failed",
     replyErrorPrefix: "Feishu reply failed",
   });
+  recordFeishuOutboundActivity(accountId);
+  return result;
 }
 
 export type SendFeishuCardParams = {
@@ -487,7 +498,7 @@ export async function sendCardFeishu(params: SendFeishuCardParams): Promise<Feis
   const content = JSON.stringify(card);
 
   const directParams = { receiveId, receiveIdType, content, msgType: "interactive" };
-  return sendReplyOrFallbackDirect(client, {
+  const result = await sendReplyOrFallbackDirect(client, {
     replyToMessageId,
     replyInThread,
     content,
@@ -496,6 +507,8 @@ export async function sendCardFeishu(params: SendFeishuCardParams): Promise<Feis
     directErrorPrefix: "Feishu card send failed",
     replyErrorPrefix: "Feishu card reply failed",
   });
+  recordFeishuOutboundActivity(accountId);
+  return result;
 }
 
 export async function editMessageFeishu(params: {
