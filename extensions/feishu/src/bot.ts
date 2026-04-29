@@ -361,9 +361,12 @@ export async function handleFeishuMessage(params: {
     });
   };
 
-  const requiresRealPersonAuth = !skipRealPersonAuth && (ctx.chatType === "p2p" || ctx.chatType === "private") &&
-    senderIdForAuth &&
-    senderIdForAuth !== botOpenId;
+  const requiresRealPersonAuth = Boolean(
+    !skipRealPersonAuth &&
+      (ctx.chatType === "p2p" || ctx.chatType === "private") &&
+      senderIdForAuth &&
+      senderIdForAuth !== botOpenId,
+  );
   const forceRealPersonAuthChallenge =
     requiresRealPersonAuth && shouldForceRealPersonAuthForMessage(ctx.content);
 
