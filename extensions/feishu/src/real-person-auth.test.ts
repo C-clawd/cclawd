@@ -187,4 +187,55 @@ describe("real-person auth QR refresh", () => {
       },
     });
   });
+
+  it("forces a new QR code for high-risk challenge even when user was already authenticated", async () => {
+    const now = Date.UTC(2026, 3, 28, 10, 0, 0);
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    setAuthStore({
+      ou_user_1: {
+        authenticated: true,
+        certToken: "old-success-token",
+        issuedAt: now - 60 * 1_000,
+        successNotified: true,
+      },
+    });
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            certToken: "fresh-force-token",
+            qrCodeUrl: "https://qr.example/fresh-force-token",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await resolveFeishuRealPersonAuthGate({
+      ...createParams(),
+      forceChallenge: true,
+    });
+
+    expect(result).toEqual({
+      action: "block",
+      certToken: "fresh-force-token",
+      verificationUrl:
+        "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=fresh-force-token&fromSource=Cclawd",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/v1/getVerifyCode");
+    expect(readAuthStore()).toEqual({
+      ou_user_1: {
+        authenticated: false,
+        certToken: "fresh-force-token",
+        issuedAt: now,
+        successNotified: false,
+      },
+    });
+  });
 });

@@ -61,6 +61,16 @@ const permissionErrorNotifiedAt = new Map<string, number>();
 const PERMISSION_ERROR_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 const REAL_PERSON_AUTH_POLL_INTERVAL_MS = 2_000;
 const REAL_PERSON_AUTH_POLL_TIMEOUT_MS = 5 * 60 * 1_000;
+const REAL_PERSON_AUTH_BYPASS_MARKER = "[cclawd-guard-bypass:real-person-auth-once]";
+const HIGH_RISK_REAL_PERSON_AUTH_PATTERNS: RegExp[] = [
+  /powershell(?:\s+)?-enc(?:oded)?\b/i,
+  /\b(?:curl|wget)\b[\s\S]{0,400}\|\s*(?:bash|sh|zsh|python|node|powershell)\b/i,
+  /\brm\s+-rf\s+(?:\/|~|\$home|\/home)\b/i,
+  /\bremove-item\b[\s\S]{0,240}\b-recurse\b[\s\S]{0,240}\b-force\b/i,
+  /\b(?:del\s+\/s\s+\/q|rmdir\s+\/s\s+\/q)\b/i,
+  /\b(?:mkfs(?:\.[a-z0-9]+)?|format\s+[a-z]:\s*\/\w|dd\s+if=\/dev\/(?:zero|random|urandom)\s+of=\/dev\/(?:sd|hd|nvme))\b/i,
+  /\b(?:schtasks\s+\/create|reg\s+add[\s\S]{0,200}currentversion\\run|authorized_keys)\b/i,
+];
 
 type PendingAuthReplay = {
   cfg: ClawdbotConfig;
@@ -83,6 +93,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function shouldForceRealPersonAuthForMessage(text: string | undefined): boolean {
+  if (!text) {
+    return false;
+  }
+  return HIGH_RISK_REAL_PERSON_AUTH_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 export type FeishuMessageEvent = {
@@ -212,8 +229,9 @@ export function buildFeishuAgentBody(params: {
   quotedContent?: string;
   permissionErrorForAgent?: FeishuPermissionError;
   botOpenId?: string;
+  postAuthBypassOnce?: boolean;
 }): string {
-  const { ctx, quotedContent, permissionErrorForAgent, botOpenId } = params;
+  const { ctx, quotedContent, permissionErrorForAgent, botOpenId, postAuthBypassOnce } = params;
   let messageBody = ctx.content;
   if (quotedContent) {
     messageBody = `[Replying to: "${quotedContent}"]\n\n${ctx.content}`;
@@ -245,6 +263,9 @@ export function buildFeishuAgentBody(params: {
     const grantUrl = permissionErrorForAgent.grantUrl ?? "";
     messageBody += `\n\n[System: The bot encountered a Feishu API permission error. Please inform the user about this issue and provide the permission grant URL for the admin to authorize. Permission grant URL: ${grantUrl}]`;
   }
+  if (postAuthBypassOnce) {
+    messageBody += `\n[System: ${REAL_PERSON_AUTH_BYPASS_MARKER}]`;
+  }
 
   return messageBody;
 }
@@ -260,6 +281,7 @@ export async function handleFeishuMessage(params: {
   processingClaimHeld?: boolean;
   skipDedupe?: boolean;
   skipRealPersonAuth?: boolean;
+  postAuthBypassOnce?: boolean;
 }): Promise<void> {
   const {
     cfg,
@@ -272,6 +294,7 @@ export async function handleFeishuMessage(params: {
     processingClaimHeld = false,
     skipDedupe = false,
     skipRealPersonAuth = false,
+    postAuthBypassOnce = false,
   } = params;
 
   // Resolve account with merged config
@@ -302,15 +325,19 @@ export async function handleFeishuMessage(params: {
   const senderUserId = event.sender.sender_id.user_id?.trim() || undefined;
   const senderIdForAuth = ctx.senderOpenId?.trim() || "";
 
-  const sendAuthPrompt = async (verificationUrl: string) => {
+  const sendAuthPrompt = async (
+    verificationUrl: string,
+    promptKind: "first-contact" | "high-risk",
+  ) => {
     const target = senderIdForAuth
       ? formatFeishuTarget(senderIdForAuth, detectIdType(senderIdForAuth) ?? undefined)
       : "";
     if (!target) {
       throw new Error("Unable to resolve Feishu auth target");
     }
-    const text =
-      `当前为首次对话，请你先进行实人认证，认证链接：${verificationUrl}，五分钟有效！`;
+    const text = promptKind === "high-risk"
+      ? `当前操作是高危操作，请你先进行实人认证，认证链接：${verificationUrl}，五分钟有效！`
+      : `当前为首次对话，请你先进行实人认证，认证链接：${verificationUrl}，五分钟有效！`;
     await sendMessageFeishu({
       cfg,
       to: target,
@@ -337,10 +364,12 @@ export async function handleFeishuMessage(params: {
   const requiresRealPersonAuth = !skipRealPersonAuth && (ctx.chatType === "p2p" || ctx.chatType === "private") &&
     senderIdForAuth &&
     senderIdForAuth !== botOpenId;
+  const forceRealPersonAuthChallenge =
+    requiresRealPersonAuth && shouldForceRealPersonAuthForMessage(ctx.content);
 
   // Debug log for real-person auth
   log(
-    `feishu[${account.accountId}]: auth check - chatType=${ctx.chatType}, senderIdForAuth=${senderIdForAuth}, botOpenId=${botOpenId}, requiresRealPersonAuth=${requiresRealPersonAuth}, hasSender=${!!senderIdForAuth}, notSelf=${senderIdForAuth !== botOpenId}`,
+    `feishu[${account.accountId}]: auth check - chatType=${ctx.chatType}, senderIdForAuth=${senderIdForAuth}, botOpenId=${botOpenId}, requiresRealPersonAuth=${requiresRealPersonAuth}, forceChallenge=${forceRealPersonAuthChallenge}, hasSender=${!!senderIdForAuth}, notSelf=${senderIdForAuth !== botOpenId}`,
   );
 
   if (requiresRealPersonAuth) {
@@ -348,6 +377,7 @@ export async function handleFeishuMessage(params: {
     const gate = await resolveFeishuRealPersonAuthGate({
       accountId: account.accountId,
       senderId: senderIdForAuth,
+      forceChallenge: forceRealPersonAuthChallenge,
       log,
       error,
     });
@@ -389,6 +419,7 @@ export async function handleFeishuMessage(params: {
                     ...pending,
                     skipDedupe: true,
                     skipRealPersonAuth: true,
+                    postAuthBypassOnce: true,
                   });
                 }
                 return;
@@ -417,7 +448,10 @@ export async function handleFeishuMessage(params: {
         });
         activeAuthPollByKey.set(replayKey, pollPromise);
       }
-      await sendAuthPrompt(gate.verificationUrl);
+      await sendAuthPrompt(
+        gate.verificationUrl,
+        forceRealPersonAuthChallenge ? "high-risk" : "first-contact",
+      );
       return;
     }
     if (gate.action === "allow-with-success") {
@@ -862,9 +896,10 @@ export async function handleFeishuMessage(params: {
     const messageBody = buildFeishuAgentBody({
       ctx,
       quotedContent,
-      permissionErrorForAgent,
-      botOpenId,
-    });
+        permissionErrorForAgent,
+        botOpenId,
+        postAuthBypassOnce,
+      });
     const envelopeFrom = isGroup ? `${ctx.chatId}:${ctx.senderOpenId}` : ctx.senderOpenId;
     if (permissionErrorForAgent) {
       // Keep the notice in a single dispatch to avoid duplicate replies (#27372).
@@ -1170,6 +1205,8 @@ export async function handleFeishuMessage(params: {
             accountId: account.accountId,
             identity,
             messageCreateTimeMs,
+            senderIdForAuth: senderIdForAuth || ctx.senderId,
+            chatType: ctx.chatType,
           });
 
           log(
@@ -1271,6 +1308,8 @@ export async function handleFeishuMessage(params: {
         accountId: account.accountId,
         identity,
         messageCreateTimeMs,
+        senderIdForAuth: senderIdForAuth || ctx.senderId,
+        chatType: ctx.chatType,
       });
 
       log(`feishu[${account.accountId}]: dispatching to agent (session=${route.sessionKey})`);

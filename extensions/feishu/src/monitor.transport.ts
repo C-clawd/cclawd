@@ -144,18 +144,24 @@ export async function monitorWebSocket({
 
     try {
       void wsClient.start({ eventDispatcher });
-      const ready = await waitForFeishuWebSocketReady({
-        wsClient,
-        abortSignal,
-      });
-      if (!ready) {
-        wsClient.close({ force: true });
+      void (async () => {
+        const ready = await waitForFeishuWebSocketReady({
+          wsClient,
+          abortSignal,
+        });
+        if (!ready) {
+          wsClient.close({ force: true });
+          cleanup();
+          abortSignal?.removeEventListener("abort", handleAbort);
+          reject(new Error(`Feishu WebSocket did not become ready within ${FEISHU_WS_READY_TIMEOUT_MS}ms`));
+          return;
+        }
+        log(`feishu[${accountId}]: WebSocket client connected`);
+      })().catch((err) => {
         cleanup();
         abortSignal?.removeEventListener("abort", handleAbort);
-        reject(new Error(`Feishu WebSocket did not become ready within ${FEISHU_WS_READY_TIMEOUT_MS}ms`));
-        return;
-      }
-      log(`feishu[${accountId}]: WebSocket client connected`);
+        reject(err);
+      });
     } catch (err) {
       cleanup();
       abortSignal?.removeEventListener("abort", handleAbort);

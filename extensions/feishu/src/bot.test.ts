@@ -318,6 +318,11 @@ describe("handleFeishuMessage ACP routing", () => {
 
     expect(mockCreateFeishuReplyDispatcher).not.toHaveBeenCalled();
     expect(mockSendMessageFeishu).toHaveBeenCalledTimes(1);
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("当前为首次对话"),
+      }),
+    );
 
     await vi.advanceTimersByTimeAsync(2_100);
 
@@ -328,6 +333,46 @@ describe("handleFeishuMessage ACP routing", () => {
       }),
     );
     expect(mockCreateFeishuReplyDispatcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("forces a fresh real-person auth challenge for high-risk DM commands", async () => {
+    vi.useFakeTimers();
+    mockResolveFeishuRealPersonAuthGate.mockResolvedValue({
+      action: "block",
+      verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
+      certToken: "test-token",
+    });
+
+    await dispatchMessage({
+      cfg: {
+        session: { mainKey: "main", scope: "per-sender" },
+        channels: { feishu: { enabled: true, allowFrom: ["ou_sender_force_1"], dmPolicy: "open" } },
+      },
+      event: {
+        sender: { sender_id: { open_id: "ou_sender_force_1" } },
+        message: {
+          message_id: "msg-auth-force-1",
+          chat_id: "oc_dm",
+          chat_type: "p2p",
+          message_type: "text",
+          content: JSON.stringify({ text: "请调用 powershell 工具执行：powershell -enc ZQBjAGgAbwAgAHQAZQBzAHQA" }),
+        },
+      },
+    });
+
+    expect(mockResolveFeishuRealPersonAuthGate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: "ou_sender_force_1",
+        forceChallenge: true,
+      }),
+    );
+    expect(mockSendMessageFeishu).toHaveBeenCalledTimes(1);
+    expect(mockCreateFeishuReplyDispatcher).not.toHaveBeenCalled();
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("当前操作是高危操作"),
+      }),
+    );
   });
 
   it("keeps polling after transient auth status errors and replays on success", async () => {

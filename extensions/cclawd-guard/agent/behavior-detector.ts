@@ -22,6 +22,8 @@ import type {
 import { sanitizeContent } from "./sanitizer.js";
 import { getMachineInfo } from "./machine-id.js";
 
+const REAL_PERSON_AUTH_BYPASS_MARKER = "cclawd-guard-bypass:real-person-auth-once";
+
 // =============================================================================
 // Tool Sets — used to decide whether to send a tool call to Core
 // =============================================================================
@@ -41,6 +43,65 @@ export const WEB_FETCH_TOOLS = new Set([
   "browser_navigate", "navigate",
 ]);
 
+type LocalHardBlockRule = {
+  id: string;
+  riskType: string;
+  message: string;
+  pattern: RegExp;
+};
+
+// P0 local hard-block rules: high certainty, low false-positive, no LLM required.
+const LOCAL_HARD_BLOCK_RULES: LocalHardBlockRule[] = [
+  {
+    id: "RCE-PS-ENC",
+    riskType: "COMMAND_EXECUTION",
+    message: "PowerShell encoded command pattern",
+    pattern: /powershell(?:\s+)?-enc(?:oded)?\b/i,
+  },
+  {
+    id: "RCE-PIPE",
+    riskType: "COMMAND_EXECUTION",
+    message: "Remote script pipe execution pattern",
+    pattern: /\b(?:curl|wget)\b[\s\S]{0,400}\|\s*(?:bash|sh|zsh|python|node|powershell)\b/i,
+  },
+  {
+    id: "DESTRUCTIVE-RM",
+    riskType: "COMMAND_EXECUTION",
+    message: "Destructive delete pattern (rm -rf)",
+    pattern: /\brm\s+-rf\s+(?:\/|~|\$home|\/home)\b/i,
+  },
+  {
+    id: "DESTRUCTIVE-PS-REMOVE",
+    riskType: "COMMAND_EXECUTION",
+    message: "Destructive PowerShell delete pattern",
+    pattern: /\bremove-item\b[\s\S]{0,240}\b-recurse\b[\s\S]{0,240}\b-force\b/i,
+  },
+  {
+    id: "DESTRUCTIVE-WIN-DEL",
+    riskType: "COMMAND_EXECUTION",
+    message: "Destructive Windows delete pattern",
+    pattern: /\b(?:del\s+\/s\s+\/q|rmdir\s+\/s\s+\/q)\b/i,
+  },
+  {
+    id: "DESTRUCTIVE-FORMAT",
+    riskType: "COMMAND_EXECUTION",
+    message: "Disk format / wipe pattern",
+    pattern: /\b(?:mkfs(?:\.[a-z0-9]+)?|format\s+[a-z]:\s*\/\w|dd\s+if=\/dev\/(?:zero|random|urandom)\s+of=\/dev\/(?:sd|hd|nvme))\b/i,
+  },
+  {
+    id: "PRIV-SUDOERS",
+    riskType: "COMMAND_EXECUTION",
+    message: "Privilege escalation via sudoers modification",
+    pattern: /\b(?:visudo|echo[\s\S]{0,200}>>\s*\/etc\/sudoers)\b/i,
+  },
+  {
+    id: "PERSISTENCE-RUNKEY",
+    riskType: "COMMAND_EXECUTION",
+    message: "Persistence via registry/scheduled task/authorized_keys",
+    pattern: /\b(?:schtasks\s+\/create|reg\s+add[\s\S]{0,200}currentversion\\run|authorized_keys)\b/i,
+  },
+];
+
 // =============================================================================
 // Session State (lightweight — only chain history + content findings)
 // =============================================================================
@@ -54,6 +115,7 @@ interface SessionState {
   nextSeq: number;
   contentInjectionFindings: ContentInjectionFinding[];
   startedAt: number;
+  realPersonAuthBypassOncePending?: boolean;
 }
 
 // =============================================================================
@@ -183,12 +245,18 @@ export class BehaviorDetector {
 
   setUserIntent(sessionKey: string, message: string): void {
     const state = this.getOrCreate(sessionKey);
+    const hasBypassMarker = message.includes(REAL_PERSON_AUTH_BYPASS_MARKER);
+    const effectiveMessage = message.replace(REAL_PERSON_AUTH_BYPASS_MARKER, "").trim() || message;
+    if (hasBypassMarker) {
+      state.realPersonAuthBypassOncePending = true;
+      this.log.info("Detected real-person-auth bypass marker; next tool call will be allowed once.");
+    }
     if (!state.userIntent) {
-      state.userIntent = message.slice(0, 500);
+      state.userIntent = effectiveMessage.slice(0, 500);
     }
     state.recentUserMessages = [
       ...state.recentUserMessages.slice(-4),
-      message.slice(0, 200),
+      effectiveMessage.slice(0, 200),
     ];
   }
 
@@ -210,6 +278,36 @@ export class BehaviorDetector {
     if (!this.coreCredentials) return undefined;
 
     const state = this.getOrCreate(ctx.sessionKey);
+    if (state.realPersonAuthBypassOncePending) {
+      state.realPersonAuthBypassOncePending = false;
+      this.log.info(`Bypassing one tool call after real-person auth: ${event.toolName}`);
+      return undefined;
+    }
+
+    const localHardBlock = this.detectLocalHardBlock(state.userIntent, event.toolName, event.params);
+    if (localHardBlock) {
+      this.log.warn(
+        `Local hard block [${localHardBlock.ruleId}] tool="${event.toolName}" marker="${localHardBlock.marker}"`,
+      );
+      return {
+        block: true,
+        blockReason:
+          `CClawd Guard blocked [high]: ${localHardBlock.message} (local rule ${localHardBlock.ruleId})`,
+        findings: [
+          {
+            scanner: "behavior_local_rules",
+            name: `Local Hard Block ${localHardBlock.ruleId}`,
+            description: localHardBlock.message,
+            matchedText: localHardBlock.marker,
+            confidence: "high",
+            reason: "Matched local P0 hard-block rule before remote assess",
+            riskLevel: "high",
+            riskType: localHardBlock.riskType,
+            riskContent: localHardBlock.contextSnippet,
+          },
+        ],
+      };
+    }
 
     // Build pendingTool
     const pendingTool: PendingToolCall = {
@@ -494,5 +592,30 @@ export class BehaviorDetector {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private detectLocalHardBlock(
+    userIntent: string,
+    toolName: string,
+    params: Record<string, unknown>,
+  ): { ruleId: string; message: string; marker: string; riskType: string; contextSnippet: string } | null {
+    const paramsText = JSON.stringify(params ?? {}).toLowerCase();
+    const tool = (toolName || "").toLowerCase();
+    const intent = (userIntent || "").toLowerCase();
+    const context = [tool, paramsText, intent].join("\n");
+
+    for (const rule of LOCAL_HARD_BLOCK_RULES) {
+      const matched = rule.pattern.exec(context);
+      if (matched?.[0]) {
+        return {
+          ruleId: rule.id,
+          message: rule.message,
+          marker: matched[0].slice(0, 120),
+          riskType: rule.riskType,
+          contextSnippet: context.slice(0, 500),
+        };
+      }
+    }
+    return null;
   }
 }

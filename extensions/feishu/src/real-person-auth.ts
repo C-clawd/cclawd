@@ -156,6 +156,7 @@ export type FeishuRealPersonAuthGateParams = {
   senderId: string;
   log: (message: string) => void;
   error: (message: string, err?: unknown) => void;
+  forceChallenge?: boolean;
 };
 
 export type FeishuRealPersonAuthStatusParams = FeishuRealPersonAuthGateParams;
@@ -285,7 +286,8 @@ export async function resolveFeishuRealPersonAuthGate(
     params.log(`[real-person-auth] authH5BaseUrl: ${authH5BaseUrl}`);
 
     const userAuth = authData[params.senderId];
-    if (userAuth?.authenticated) {
+    const shouldForceFreshChallenge = params.forceChallenge === true;
+    if (!params.forceChallenge && userAuth?.authenticated) {
       if (!userAuth.successNotified) {
         authData[params.senderId] = {
           ...userAuth,
@@ -298,7 +300,14 @@ export async function resolveFeishuRealPersonAuthGate(
     }
 
     const existingCertExpired = isRealPersonCertExpired(userAuth);
-    if (userAuth?.certToken && !existingCertExpired) {
+    if (shouldForceFreshChallenge && userAuth?.authenticated) {
+      authData[params.senderId] = {
+        authenticated: false,
+        successNotified: false,
+      };
+      await writeRealPersonAuthStore(authFilePath, authData);
+    }
+    if (!shouldForceFreshChallenge && userAuth?.certToken && !existingCertExpired) {
       params.log(`[real-person-auth] checking auth status for certToken: ${userAuth.certToken.slice(0, 8)}...`);
       const status = await checkAuthStatus(apiKey, userAuth.certToken);
       params.log(`[real-person-auth] auth status: ${status}`);

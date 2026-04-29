@@ -12,6 +12,9 @@ const createReplyDispatcherWithTypingMock = vi.hoisted(() => vi.fn());
 const addTypingIndicatorMock = vi.hoisted(() => vi.fn(async () => ({ messageId: "om_msg" })));
 const removeTypingIndicatorMock = vi.hoisted(() => vi.fn(async () => {}));
 const streamingInstances = vi.hoisted(() => [] as any[]);
+const resolveFeishuRealPersonAuthGateMock = vi.hoisted(() => vi.fn());
+const detectIdTypeMock = vi.hoisted(() => vi.fn());
+const formatFeishuTargetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./accounts.js", () => ({ resolveFeishuAccount: resolveFeishuAccountMock }));
 vi.mock("./runtime.js", () => ({ getFeishuRuntime: getFeishuRuntimeMock }));
@@ -22,7 +25,14 @@ vi.mock("./send.js", () => ({
 }));
 vi.mock("./media.js", () => ({ sendMediaFeishu: sendMediaFeishuMock }));
 vi.mock("./client.js", () => ({ createFeishuClient: createFeishuClientMock }));
-vi.mock("./targets.js", () => ({ resolveReceiveIdType: resolveReceiveIdTypeMock }));
+vi.mock("./targets.js", () => ({
+  resolveReceiveIdType: resolveReceiveIdTypeMock,
+  detectIdType: detectIdTypeMock,
+  formatFeishuTarget: formatFeishuTargetMock,
+}));
+vi.mock("./real-person-auth.js", () => ({
+  resolveFeishuRealPersonAuthGate: resolveFeishuRealPersonAuthGateMock,
+}));
 vi.mock("./typing.js", () => ({
   addTypingIndicator: addTypingIndicatorMock,
   removeTypingIndicator: removeTypingIndicatorMock,
@@ -72,7 +82,14 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     });
 
     resolveReceiveIdTypeMock.mockReturnValue("chat_id");
+    detectIdTypeMock.mockReturnValue("open_id");
+    formatFeishuTargetMock.mockImplementation((id: string) => `user:${id}`);
     createFeishuClientMock.mockReturnValue({});
+    resolveFeishuRealPersonAuthGateMock.mockResolvedValue({
+      action: "block",
+      verificationUrl: "https://h5.dabby.com.cn/auth",
+      certToken: "token_1",
+    });
 
     createReplyDispatcherWithTypingMock.mockImplementation((opts) => ({
       dispatcher: {},
@@ -236,6 +253,57 @@ describe("createFeishuReplyDispatcher streaming behavior", () => {
     expect(sendMessageFeishuMock).not.toHaveBeenCalled();
     expect(sendMarkdownCardFeishuMock).not.toHaveBeenCalled();
     expect(sendMediaFeishuMock).not.toHaveBeenCalled();
+  });
+
+  it("triggers real-person auth challenge on guard risk block in direct chat", async () => {
+    const { options } = createDispatcherHarness({
+      senderIdForAuth: "ou_user_1",
+      chatType: "p2p",
+    });
+    await options.deliver({ text: "CClawd Guard blocked [high]: dangerous op" }, { kind: "block" });
+
+    expect(resolveFeishuRealPersonAuthGateMock).toHaveBeenCalledTimes(1);
+    expect(resolveFeishuRealPersonAuthGateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: "ou_user_1",
+        forceChallenge: true,
+      }),
+    );
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageFeishuMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "user:ou_user_1",
+      }),
+    );
+  });
+
+  it("triggers real-person auth challenge when guard block is surfaced as final text", async () => {
+    const { options } = createDispatcherHarness({
+      senderIdForAuth: "ou_user_1",
+      chatType: "p2p",
+    });
+    await options.deliver(
+      { text: "CClawd Guard blocked [high]: encoded command pattern detected" },
+      { kind: "final" },
+    );
+
+    expect(resolveFeishuRealPersonAuthGateMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageFeishuMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageFeishuMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "user:ou_user_1",
+      }),
+    );
+  });
+
+  it("does not trigger real-person challenge for group block messages", async () => {
+    const { options } = createDispatcherHarness({
+      senderIdForAuth: "ou_user_1",
+      chatType: "group",
+    });
+    await options.deliver({ text: "CClawd Guard blocked [high]: dangerous op" }, { kind: "block" });
+
+    expect(resolveFeishuRealPersonAuthGateMock).not.toHaveBeenCalled();
   });
 
   it("sets disableBlockStreaming in replyOptions to prevent silent reply drops", async () => {

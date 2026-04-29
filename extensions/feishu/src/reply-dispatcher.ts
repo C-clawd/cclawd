@@ -17,10 +17,11 @@ import { createFeishuClient } from "./client.js";
 import { sendMediaFeishu } from "./media.js";
 import type { MentionTarget } from "./mention.js";
 import { buildMentionedCardContent } from "./mention.js";
+import { resolveFeishuRealPersonAuthGate } from "./real-person-auth.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { sendMessageFeishu, sendStructuredCardFeishu, type CardHeaderConfig } from "./send.js";
 import { FeishuStreamingSession, mergeStreamingText } from "./streaming-card.js";
-import { resolveReceiveIdType } from "./targets.js";
+import { detectIdType, formatFeishuTarget, resolveReceiveIdType } from "./targets.js";
 import { addTypingIndicator, removeTypingIndicator, type TypingIndicatorState } from "./typing.js";
 
 /** Detect if text contains markdown elements that benefit from card rendering */
@@ -90,7 +91,15 @@ export type CreateFeishuReplyDispatcherParams = {
   /** Epoch ms when the inbound message was created. Used to suppress typing
    *  indicators on old/replayed messages after context compaction (#30418). */
   messageCreateTimeMs?: number;
+  senderIdForAuth?: string;
+  chatType?: "p2p" | "group" | "private";
 };
+
+const GUARD_BLOCK_MARKER = "cclawd guard blocked";
+
+function isGuardRiskBlock(text: string): boolean {
+  return text.toLowerCase().includes(GUARD_BLOCK_MARKER);
+}
 
 export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherParams) {
   const core = getFeishuRuntime();
@@ -112,6 +121,43 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   const effectiveReplyInThread = threadReplyMode ? true : replyInThread;
   const account = resolveFeishuAccount({ cfg, accountId });
   const prefixContext = createReplyPrefixContext({ cfg, agentId });
+  const senderIdForAuth = params.senderIdForAuth?.trim();
+  const isDirectChat = params.chatType === "p2p" || params.chatType === "private";
+
+  const maybeSendRealPersonChallenge = async (reasonText: string): Promise<boolean> => {
+    if (!isDirectChat || !senderIdForAuth || !isGuardRiskBlock(reasonText)) {
+      return false;
+    }
+    const target = formatFeishuTarget(senderIdForAuth, detectIdType(senderIdForAuth) ?? undefined);
+    if (!target) {
+      return false;
+    }
+    try {
+      const gate = await resolveFeishuRealPersonAuthGate({
+        accountId: account.accountId,
+        senderId: senderIdForAuth,
+        forceChallenge: true,
+        log: (message) => params.runtime.log?.(`feishu[${account.accountId}] ${message}`),
+        error: (message, err) =>
+          params.runtime.error?.(`feishu[${account.accountId}] ${message}: ${String(err ?? "")}`),
+      });
+      if (gate.action !== "block") {
+        return false;
+      }
+      await sendMessageFeishu({
+        cfg,
+        to: target,
+        text: `检测到高风险操作，请先完成实人认证后再继续。认证链接：${gate.verificationUrl}（5分钟有效）`,
+        accountId,
+      });
+      return true;
+    } catch (err) {
+      params.runtime.error?.(
+        `feishu[${account.accountId}] failed to trigger real-person challenge: ${String(err)}`,
+      );
+      return false;
+    }
+  };
 
   let typingState: TypingIndicatorState | null = null;
   const { typingCallbacks } = createChannelReplyPipeline({
@@ -374,9 +420,19 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
         }
 
         if (shouldDeliverText) {
+          if (info?.kind === "final") {
+            const challengeTriggered = await maybeSendRealPersonChallenge(text);
+            if (challengeTriggered) {
+              return;
+            }
+          }
           const useCard = renderMode === "card" || (renderMode === "auto" && shouldUseCard(text));
 
           if (info?.kind === "block") {
+            const challengeTriggered = await maybeSendRealPersonChallenge(text);
+            if (challengeTriggered) {
+              return;
+            }
             // Drop internal block chunks unless we can safely consume them as
             // streaming-card fallback content.
             if (!(streamingEnabled && useCard)) {
