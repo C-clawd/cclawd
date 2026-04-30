@@ -111,6 +111,7 @@ describe("real-person auth QR refresh", () => {
     expect(result).toEqual({
       action: "block",
       certToken: "pending-token",
+      promptKind: "first-contact",
       verificationUrl:
         "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=pending-token&fromSource=Cclawd",
     });
@@ -152,6 +153,7 @@ describe("real-person auth QR refresh", () => {
     expect(result).toEqual({
       action: "block",
       certToken: "fresh-token",
+      promptKind: "first-contact",
       verificationUrl:
         "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=fresh-token&fromSource=Cclawd",
     });
@@ -162,6 +164,7 @@ describe("real-person auth QR refresh", () => {
         authenticated: false,
         certToken: "fresh-token",
         issuedAt: now,
+        promptKind: "first-contact",
         successNotified: false,
       },
     });
@@ -224,6 +227,7 @@ describe("real-person auth QR refresh", () => {
     expect(result).toEqual({
       action: "block",
       certToken: "fresh-force-token",
+      promptKind: "high-risk",
       verificationUrl:
         "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=fresh-force-token&fromSource=Cclawd",
     });
@@ -234,8 +238,41 @@ describe("real-person auth QR refresh", () => {
         authenticated: false,
         certToken: "fresh-force-token",
         issuedAt: now,
+        promptKind: "high-risk",
         successNotified: false,
       },
+    });
+  });
+
+  it("keeps high-risk promptKind while auth is pending for subsequent checks", async () => {
+    const now = Date.UTC(2026, 3, 28, 10, 0, 0);
+    vi.spyOn(Date, "now").mockReturnValue(now);
+    setAuthStore({
+      ou_user_1: {
+        authenticated: false,
+        certToken: "pending-high-risk-token",
+        issuedAt: now - 60 * 1_000,
+        promptKind: "high-risk",
+        successNotified: false,
+      },
+    });
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ retCode: 4401, data: { authSuccess: false } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await resolveFeishuRealPersonAuthGate(createParams());
+
+    expect(result).toEqual({
+      action: "block",
+      certToken: "pending-high-risk-token",
+      promptKind: "high-risk",
+      verificationUrl:
+        "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=pending-high-risk-token&fromSource=Cclawd",
     });
   });
 });

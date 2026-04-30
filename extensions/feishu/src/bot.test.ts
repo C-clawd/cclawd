@@ -296,6 +296,7 @@ describe("handleFeishuMessage ACP routing", () => {
       action: "block",
       verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
       certToken: "test-token",
+      promptKind: "first-contact",
     });
     mockCheckFeishuRealPersonAuthStatus.mockResolvedValueOnce({ status: "success" });
 
@@ -341,6 +342,7 @@ describe("handleFeishuMessage ACP routing", () => {
       action: "block",
       verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
       certToken: "test-token",
+      promptKind: "high-risk",
     });
 
     await dispatchMessage({
@@ -375,12 +377,52 @@ describe("handleFeishuMessage ACP routing", () => {
     );
   });
 
+  it("treats bare rm -rf as high-risk and uses high-risk auth prompt", async () => {
+    vi.useFakeTimers();
+    mockResolveFeishuRealPersonAuthGate.mockResolvedValue({
+      action: "block",
+      verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token-rm",
+      certToken: "test-token-rm",
+      promptKind: "high-risk",
+    });
+
+    await dispatchMessage({
+      cfg: {
+        session: { mainKey: "main", scope: "per-sender" },
+        channels: { feishu: { enabled: true, allowFrom: ["ou_sender_rm_1"], dmPolicy: "open" } },
+      },
+      event: {
+        sender: { sender_id: { open_id: "ou_sender_rm_1" } },
+        message: {
+          message_id: "msg-auth-force-rm",
+          chat_id: "oc_dm",
+          chat_type: "p2p",
+          message_type: "text",
+          content: JSON.stringify({ text: "rm -rf" }),
+        },
+      },
+    });
+
+    expect(mockResolveFeishuRealPersonAuthGate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: "ou_sender_rm_1",
+        forceChallenge: true,
+      }),
+    );
+    expect(mockSendMessageFeishu).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("当前操作是高危操作"),
+      }),
+    );
+  });
+
   it("keeps polling after transient auth status errors and replays on success", async () => {
     vi.useFakeTimers();
     mockResolveFeishuRealPersonAuthGate.mockResolvedValue({
       action: "block",
       verificationUrl: "https://h5.dabby.com.cn/authhtml/index.html#/auth?certToken=test-token",
       certToken: "test-token",
+      promptKind: "first-contact",
     });
     mockCheckFeishuRealPersonAuthStatus
       .mockRejectedValueOnce(new Error("network timeout"))

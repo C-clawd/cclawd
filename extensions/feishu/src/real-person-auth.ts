@@ -28,6 +28,7 @@ type RealPersonAuthRecord = {
   certToken?: string;
   successNotified?: boolean;
   issuedAt?: number;
+  promptKind?: "first-contact" | "high-risk";
 };
 
 type RealPersonAuthStore = Record<string, RealPersonAuthRecord>;
@@ -149,7 +150,12 @@ export type FeishuRealPersonAuthGateAction = "allow" | "allow-with-success" | "b
 export type FeishuRealPersonAuthGateResult =
   | { action: "allow" }
   | { action: "allow-with-success" }
-  | { action: "block"; verificationUrl: string; certToken: string };
+  | {
+    action: "block";
+    verificationUrl: string;
+    certToken: string;
+    promptKind: "first-contact" | "high-risk";
+  };
 
 export type FeishuRealPersonAuthGateParams = {
   accountId: string;
@@ -162,7 +168,12 @@ export type FeishuRealPersonAuthGateParams = {
 export type FeishuRealPersonAuthStatusParams = FeishuRealPersonAuthGateParams;
 export type FeishuRealPersonAuthStatusResult =
   | { status: "success" }
-  | { status: "pending"; verificationUrl: string; certToken: string }
+  | {
+    status: "pending";
+    verificationUrl: string;
+    certToken: string;
+    promptKind?: "first-contact" | "high-risk";
+  }
   | { status: "failed" }
   | { status: "missing" };
 
@@ -270,6 +281,7 @@ export async function checkFeishuRealPersonAuthStatus(
       status: "pending",
       verificationUrl: resolveVerificationUrl(certToken),
       certToken,
+      promptKind: userAuth.promptKind,
     };
   }
   return { status: "failed" };
@@ -287,6 +299,9 @@ export async function resolveFeishuRealPersonAuthGate(
 
     const userAuth = authData[params.senderId];
     const shouldForceFreshChallenge = params.forceChallenge === true;
+    const promptKind: "first-contact" | "high-risk" = shouldForceFreshChallenge
+      ? "high-risk"
+      : (userAuth?.promptKind ?? "first-contact");
     if (!params.forceChallenge && userAuth?.authenticated) {
       if (!userAuth.successNotified) {
         authData[params.senderId] = {
@@ -328,6 +343,7 @@ export async function resolveFeishuRealPersonAuthGate(
           action: "block",
           verificationUrl: `${authH5BaseUrl}/authhtml/index.html#/auth?certToken=${userAuth.certToken}&fromSource=Cclawd`,
           certToken: userAuth.certToken,
+          promptKind,
         };
       }
     }
@@ -344,6 +360,7 @@ export async function resolveFeishuRealPersonAuthGate(
       certToken,
       issuedAt: Date.now(),
       successNotified: false,
+      promptKind,
     };
     await writeRealPersonAuthStore(authFilePath, authData);
 
@@ -351,6 +368,7 @@ export async function resolveFeishuRealPersonAuthGate(
       action: "block",
       verificationUrl: `${authH5BaseUrl}/authhtml/index.html#/auth?certToken=${certToken}&fromSource=Cclawd`,
       certToken,
+      promptKind,
     };
   } catch (err: any) {
     params.error(`resolveFeishuRealPersonAuthGate error: ${err.message}`, err);

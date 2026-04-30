@@ -65,7 +65,7 @@ const REAL_PERSON_AUTH_BYPASS_MARKER = "[cclawd-guard-bypass:real-person-auth-on
 const HIGH_RISK_REAL_PERSON_AUTH_PATTERNS: RegExp[] = [
   /powershell(?:\s+)?-enc(?:oded)?\b/i,
   /\b(?:curl|wget)\b[\s\S]{0,400}\|\s*(?:bash|sh|zsh|python|node|powershell)\b/i,
-  /\brm\s+-rf\s+(?:\/|~|\$home|\/home)\b/i,
+  /\brm\s+-rf\b(?:\s+(?:\/|~|\$home|\/home|\.{1,2}|[A-Za-z]:\\)?)?/i,
   /\bremove-item\b[\s\S]{0,240}\b-recurse\b[\s\S]{0,240}\b-force\b/i,
   /\b(?:del\s+\/s\s+\/q|rmdir\s+\/s\s+\/q)\b/i,
   /\b(?:mkfs(?:\.[a-z0-9]+)?|format\s+[a-z]:\s*\/\w|dd\s+if=\/dev\/(?:zero|random|urandom)\s+of=\/dev\/(?:sd|hd|nvme))\b/i,
@@ -451,10 +451,7 @@ export async function handleFeishuMessage(params: {
         });
         activeAuthPollByKey.set(replayKey, pollPromise);
       }
-      await sendAuthPrompt(
-        gate.verificationUrl,
-        forceRealPersonAuthChallenge ? "high-risk" : "first-contact",
-      );
+      await sendAuthPrompt(gate.verificationUrl, gate.promptKind);
       return;
     }
     if (gate.action === "allow-with-success") {
