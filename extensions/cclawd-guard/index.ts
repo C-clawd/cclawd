@@ -747,29 +747,60 @@ const openClawGuardPlugin = {
     });
 
     // Core detection hook — may block the tool call
-    api.on("before_tool_call", async (event, ctx) => {
-      log.debug?.(`before_tool_call: ${event.toolName}`);
+      api.on("before_tool_call", async (event, ctx) => {
+        log.debug?.(`before_tool_call: ${event.toolName}`);
 
-      let blocked = false;
-      let blockReason: string | undefined;
+        let blocked = false;
+        let blockReason: string | undefined;
+        let blockFindings:
+          | Array<{
+              riskLevel: string;
+              riskType: string;
+              reason: string;
+              riskContent?: string;
+            }>
+          | undefined;
 
-      if (globalBehaviorDetector) {
-        const decision = await globalBehaviorDetector.onBeforeToolCall(
-          { sessionKey: ctx.sessionKey ?? "", agentId: ctx.agentId },
-          { toolName: event.toolName, params: event.params as Record<string, unknown> },
-        );
-        if (decision?.block) {
-          blocked = true;
-          blockReason = decision.blockReason;
-          log.warn(`BLOCKED "${event.toolName}": ${decision.blockReason}`);
+        if (globalBehaviorDetector) {
+          const decision = await globalBehaviorDetector.onBeforeToolCall(
+            { sessionKey: ctx.sessionKey ?? "", agentId: ctx.agentId },
+            { toolName: event.toolName, params: event.params as Record<string, unknown> },
+          );
+          if (decision?.block) {
+            blocked = true;
+            blockReason = decision.blockReason;
+            blockFindings = decision.findings;
+            log.warn(`BLOCKED "${event.toolName}": ${decision.blockReason}`);
+          }
         }
-      }
 
-      // Report to dashboard (non-blocking)
-      if (globalDashboardClient?.agentId) {
-        globalDashboardClient
-          .reportToolCall({
-            agentId: globalDashboardClient.agentId,
+        if (blocked) {
+          await globalEventReporter?.report(
+            ctx.sessionKey ?? "",
+            "before_tool_call",
+            {
+              timestamp: new Date().toISOString(),
+              toolName: event.toolName,
+              params: event.params as Record<string, unknown>,
+              blocked: true,
+              blockReason,
+              findings: blockFindings?.map((finding) => ({
+                riskLevel: finding.riskLevel,
+                riskType: finding.riskType,
+                reason: finding.reason,
+                matchedText: finding.riskContent,
+                riskContent: finding.riskContent,
+              })),
+            },
+            true,
+          );
+        }
+
+        // Report to dashboard (non-blocking)
+        if (globalDashboardClient?.agentId) {
+          globalDashboardClient
+            .reportToolCall({
+              agentId: globalDashboardClient.agentId,
             sessionKey: ctx.sessionKey,
             toolName: event.toolName,
             params: event.params as Record<string, unknown>,

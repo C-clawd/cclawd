@@ -200,6 +200,18 @@ export type BeforeToolCallData = BaseEventData & {
   params: Record<string, unknown>;
   /** Tool input hash for dedup */
   inputHash?: string;
+  /** Whether the tool call was already blocked locally before reaching Core */
+  blocked?: boolean;
+  /** Human-readable reason for a local block */
+  blockReason?: string;
+  /** Structured findings associated with a local block */
+  findings?: Array<{
+    riskLevel: string;
+    riskType: string;
+    reason: string;
+    matchedText?: string;
+    riskContent?: string;
+  }>;
 };
 
 export type AfterToolCallData = BaseEventData & {

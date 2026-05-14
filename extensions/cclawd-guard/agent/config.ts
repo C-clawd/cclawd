@@ -8,6 +8,7 @@ import path from "node:path";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
 import { defaultCoreUrl, envApiKey } from "./env.js";
 import { loadTextSync, loadTextSafe, loadJsonSafe } from "./fs-utils.js";
+import { getMachineInfo } from "./machine-id.js";
 
 // =============================================================================
 // Constants
@@ -32,6 +33,49 @@ export type CoreCredentials = {
   coreUrl?: string;
 };
 
+type SharedGuardCredentials = Partial<CoreCredentials> & {
+  orgToken?: string;
+  orgId?: string;
+  userId?: string;
+  machineId?: string;
+};
+
+function normalizeCoreUrl(coreUrl: string): string {
+  return coreUrl.replace(/\/+$/, "");
+}
+
+function loadSharedCredentialState(configuredCoreUrl?: string): SharedGuardCredentials | null {
+  try {
+    if (!existsSync(CREDENTIALS_FILE)) return null;
+    const data = JSON.parse(loadTextSync(CREDENTIALS_FILE)) as SharedGuardCredentials;
+    const expectedUrl = normalizeCoreUrl(configuredCoreUrl ?? DEFAULT_CORE_URL);
+    const issuedCoreUrl = typeof data.coreUrl === "string" ? normalizeCoreUrl(data.coreUrl) : "";
+    if (issuedCoreUrl && issuedCoreUrl !== expectedUrl) {
+      return null;
+    }
+
+    const normalized: SharedGuardCredentials = {
+      apiKey: typeof data.apiKey === "string" ? data.apiKey.trim() : "",
+      agentId: typeof data.agentId === "string" ? data.agentId.trim() : "",
+      claimUrl: typeof data.claimUrl === "string" ? data.claimUrl.trim() : "",
+      verificationCode: typeof data.verificationCode === "string" ? data.verificationCode.trim() : "",
+      email: typeof data.email === "string" ? data.email.trim() : "",
+      coreUrl: issuedCoreUrl || expectedUrl,
+      orgToken: typeof data.orgToken === "string" ? data.orgToken.trim() : "",
+      orgId: typeof data.orgId === "string" ? data.orgId.trim() : "",
+      userId: typeof data.userId === "string" ? data.userId.trim() : "",
+      machineId: typeof data.machineId === "string" ? data.machineId.trim() : "",
+    };
+
+    if (!Object.values(normalized).some((value) => typeof value === "string" && value.length > 0)) {
+      return null;
+    }
+    return normalized;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Load credentials from disk.
  * If the credentials were issued by a different Core URL, returns null
@@ -41,39 +85,50 @@ export type CoreCredentials = {
  *   When provided, credentials are validated against this URL instead of DEFAULT_CORE_URL.
  */
 export function loadCoreCredentials(configuredCoreUrl?: string): CoreCredentials | null {
-  try {
-    if (!existsSync(CREDENTIALS_FILE)) return null;
-    const data = JSON.parse(loadTextSync(CREDENTIALS_FILE));
-    if (typeof data.apiKey === "string" && typeof data.agentId === "string") {
-      const creds = data as CoreCredentials;
-      const expectedUrl = configuredCoreUrl ?? DEFAULT_CORE_URL;
-      // Check if credentials match current environment
-      if (creds.coreUrl && creds.coreUrl !== expectedUrl) {
-        // Credentials from a different Core instance - don't use them
-        // Credentials from a different Core instance - skip
-        return null;
-      }
-      return creds;
-    }
-    return null;
-  } catch {
+  const shared = loadSharedCredentialState(configuredCoreUrl);
+  if (!shared?.apiKey || !shared?.agentId) {
     return null;
   }
+  return {
+    apiKey: shared.apiKey,
+    agentId: shared.agentId,
+    claimUrl: shared.claimUrl ?? "",
+    verificationCode: shared.verificationCode ?? "",
+    email: shared.email,
+    coreUrl: shared.coreUrl,
+  };
 }
 
 export function saveCoreCredentials(creds: CoreCredentials, coreUrl?: string): void {
   if (!existsSync(CREDENTIALS_DIR)) {
     mkdirSync(CREDENTIALS_DIR, { recursive: true });
   }
+  const current = loadSharedCredentialState(coreUrl) ?? {};
   // Save the Core URL with credentials so we know which instance issued them
-  const toSave = { ...creds, coreUrl: coreUrl ?? DEFAULT_CORE_URL };
+  const toSave: SharedGuardCredentials = {
+    ...current,
+    ...creds,
+    coreUrl: normalizeCoreUrl(coreUrl ?? DEFAULT_CORE_URL),
+  };
   writeFileSync(CREDENTIALS_FILE, JSON.stringify(toSave, null, 2), "utf-8");
 }
 
 export function deleteCoreCredentials(): boolean {
   try {
     if (existsSync(CREDENTIALS_FILE)) {
-      unlinkSync(CREDENTIALS_FILE);
+      const current = loadSharedCredentialState();
+      if (current?.orgToken || current?.orgId || current?.userId || current?.machineId) {
+        const preserved: SharedGuardCredentials = {
+          orgToken: current.orgToken ?? "",
+          orgId: current.orgId ?? "",
+          userId: current.userId ?? "",
+          machineId: current.machineId ?? "",
+          coreUrl: current.coreUrl ?? normalizeCoreUrl(DEFAULT_CORE_URL),
+        };
+        writeFileSync(CREDENTIALS_FILE, JSON.stringify(preserved, null, 2), "utf-8");
+      } else {
+        unlinkSync(CREDENTIALS_FILE);
+      }
       return true;
     }
     return false;
@@ -98,11 +153,25 @@ export async function registerWithCore(
   description: string,
   coreUrl: string = DEFAULT_CORE_URL,
 ): Promise<RegisterResult> {
-  const url = coreUrl.replace(/\/+$/, "");
-  const response = await fetch(`${url}/api/v1/agents/register`, {
+  const url = normalizeCoreUrl(coreUrl);
+  const shared = loadSharedCredentialState(url);
+  const orgToken = shared?.orgToken ?? "";
+  if (!orgToken) {
+    throw new Error("Registration failed: 401 Missing org token");
+  }
+
+  const { machineId, machineName } = getMachineInfo();
+  const response = await fetch(`${url}/api/v1/agents/bind`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description }),
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${orgToken}`,
+    },
+    body: JSON.stringify({
+      machineId,
+      name: name || machineName || "cclawd-guard-agent",
+      description,
+    }),
   });
 
   if (!response.ok) {
