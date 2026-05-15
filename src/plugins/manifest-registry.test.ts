@@ -40,6 +40,8 @@ function createPluginCandidate(params: {
   bundleFormat?: "codex" | "claude" | "cursor";
   packageManifest?: OpenClawPackageManifest;
   packageDir?: string;
+  packageName?: string;
+  packageVersion?: string;
 }): PluginCandidate {
   return {
     idHint: params.idHint,
@@ -50,6 +52,8 @@ function createPluginCandidate(params: {
     bundleFormat: params.bundleFormat,
     packageManifest: params.packageManifest,
     packageDir: params.packageDir,
+    packageName: params.packageName,
+    packageVersion: params.packageVersion,
   };
 }
 
@@ -365,6 +369,36 @@ describe("loadPluginManifestRegistry", () => {
         diag.message.includes("global plugin will be overridden by bundled plugin"),
       ),
     ).toBe(true);
+  });
+
+  it("suppresses duplicate warnings for identical bundled/global mirrors", () => {
+    const bundledDir = makeTempDir();
+    const globalDir = makeTempDir();
+    const manifest = { id: "feishu", configSchema: { type: "object" } };
+    writeManifest(bundledDir, manifest);
+    writeManifest(globalDir, manifest);
+
+    const registry = loadPluginManifestRegistry({
+      cache: false,
+      candidates: [
+        createPluginCandidate({
+          idHint: "feishu",
+          rootDir: bundledDir,
+          origin: "bundled",
+          packageName: "@openclaw/feishu",
+          packageVersion: "2026.3.22",
+        }),
+        createPluginCandidate({
+          idHint: "feishu",
+          rootDir: globalDir,
+          origin: "global",
+          packageName: "@openclaw/feishu",
+          packageVersion: "2026.3.22",
+        }),
+      ],
+    });
+
+    expect(countDuplicateWarnings(registry)).toBe(0);
   });
 
   it("reports bundled plugins as the duplicate winner for workspace duplicates", () => {

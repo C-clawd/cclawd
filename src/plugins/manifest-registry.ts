@@ -33,6 +33,28 @@ const PLUGIN_ORIGIN_RANK: Readonly<Record<PluginOrigin, number>> = {
   bundled: 3,
 };
 
+function isBundledGlobalMirrorDuplicate(params: {
+  existing: PluginCandidate;
+  candidate: PluginCandidate;
+}): boolean {
+  const origins = new Set([params.existing.origin, params.candidate.origin]);
+  if (!origins.has("bundled") || !origins.has("global")) {
+    return false;
+  }
+  const existingName = params.existing.packageName?.trim();
+  const candidateName = params.candidate.packageName?.trim();
+  const existingVersion = params.existing.packageVersion?.trim();
+  const candidateVersion = params.candidate.packageVersion?.trim();
+  return Boolean(
+    existingName &&
+      candidateName &&
+      existingName === candidateName &&
+      existingVersion &&
+      candidateVersion &&
+      existingVersion === candidateVersion,
+  );
+}
+
 export type PluginManifestRecord = {
   id: string;
   name?: string;
@@ -438,6 +460,9 @@ export function loadPluginManifestRegistry(
               });
           seenIds.set(manifest.id, { candidate, recordIndex: existing.recordIndex });
         }
+        continue;
+      }
+      if (isBundledGlobalMirrorDuplicate({ existing: existing.candidate, candidate })) {
         continue;
       }
       diagnostics.push({
