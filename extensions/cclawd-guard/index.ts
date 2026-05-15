@@ -480,10 +480,15 @@ const openClawGuardPlugin = {
     }
 
     // ── Personal Dashboard auto-start ─────────────────────────────────
-    // Starts the local dashboard automatically when the plugin loads.
-    // Data is stored in the plugin's data directory.
+    // Disabled for desktop/runtime stability until the dashboard bundle is
+    // packaged reliably. The guard plugin still provides its core protections.
+    const PERSONAL_DASHBOARD_AUTO_START = false;
 
     async function initPersonalDashboard(coreUrl: string): Promise<void> {
+      if (!PERSONAL_DASHBOARD_AUTO_START) {
+        debugLog("initPersonalDashboard: auto-start disabled");
+        return;
+      }
       debugLog(`initPersonalDashboard: called, personalDashboardStarted=${personalDashboardStarted}`);
       if (personalDashboardStarted) { debugLog("initPersonalDashboard: already started, skipping"); return; }
       personalDashboardStarted = true;
@@ -600,11 +605,12 @@ const openClawGuardPlugin = {
       log.debug?.(`Dashboard: connected to ${dashboardUrl}`);
     }
 
-    // Start personal dashboard unconditionally (like gateway at line 306).
-    // Dashboard server starts even without credentials — credentials are optional.
-    // If registerWithCore() is in-flight, dashboard will start with empty credentials;
-    // the dashboard server itself doesn't need them to listen.
-    initPersonalDashboard(config.coreUrl);
+    if (PERSONAL_DASHBOARD_AUTO_START) {
+      // Dashboard server starts even without credentials — credentials are optional.
+      // If registerWithCore() is in-flight, dashboard will start with empty credentials;
+      // the dashboard server itself doesn't need them to listen.
+      initPersonalDashboard(config.coreUrl);
+    }
 
     // ── Business plan initialization ───────────────────────────────
     // Check account plan and initialize ConfigSync if business.
