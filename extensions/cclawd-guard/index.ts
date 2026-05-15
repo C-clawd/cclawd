@@ -232,6 +232,7 @@ const llmInputTimestamps = new Map<string, number>();
 let autoScanEnabled = false;
 // Track current account plan
 let currentAccountPlan = "free";
+let gatewayBootstrapPromise: Promise<void> | null = null;
 
 // =============================================================================
 // Ensure default config in openclaw.json
@@ -319,18 +320,24 @@ const openClawGuardPlugin = {
     // Gateway runs in the plugin process and is always available.
     // Users enable sanitization via /sanitize on, which routes agents through it.
     // Async: waits for port availability (old process may hold it during plugin update).
-    startGateway()
-      .then(() => {
+    if (!gatewayBootstrapPromise) {
+      gatewayBootstrapPromise = (async () => {
+        await startGateway();
         log.debug?.("AI Security Gateway started");
-        // 默认自动开启网关路由 (Auto-enable gateway routing by default)
-        enableGateway().then((res) => {
+        try {
+          // 默认自动开启网关路由 (Auto-enable gateway routing by default)
+          const res = await enableGateway();
           log.info(`AI Security Gateway auto-enabled for: ${res.providers.join(", ")}`);
-        }).catch((err) => {
+        } catch (err) {
           // If already enabled or no providers, it will throw, which is fine
           log.debug?.(`Gateway auto-enable skipped: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      })
-      .catch((err) => log.error(`Failed to start AI Security Gateway: ${err}`));
+        }
+      })().catch((err) => {
+        gatewayBootstrapPromise = null;
+        throw err;
+      });
+    }
+    gatewayBootstrapPromise.catch((err) => log.error(`Failed to start AI Security Gateway: ${err}`));
 
     // Set dashboard port immediately so gateway can report activity
     // (Dashboard will start later, but port is fixed at 53667)

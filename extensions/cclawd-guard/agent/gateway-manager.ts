@@ -190,6 +190,7 @@ type GatewayStatus = {
 // =============================================================================
 
 let gatewayRunning = false;
+let gatewayStartPromise: Promise<void> | null = null;
 let dashboardPort: number | null = null;
 let dashboardToken: string | null = null;
 
@@ -306,6 +307,14 @@ async function waitForPortAvailable(port: number, timeoutMs: number = 10000): Pr
  * Start the gateway server (in-process, embedded mode)
  */
 export async function startGateway(): Promise<void> {
+  if (isGatewayServerRunning() || gatewayRunning) {
+    return;
+  }
+  if (gatewayStartPromise) {
+    return gatewayStartPromise;
+  }
+
+  gatewayStartPromise = (async () => {
   mkdirSync(CCLAWD_GUARD_DATA_DIR, { recursive: true });
 
   if (!existsSync(GATEWAY_CONFIG)) {
@@ -354,6 +363,13 @@ export async function startGateway(): Promise<void> {
     console.error("[cclawd-guard] Failed to start gateway:", err);
     gatewayRunning = false;
   }
+  })();
+
+  try {
+    await gatewayStartPromise;
+  } finally {
+    gatewayStartPromise = null;
+  }
 }
 
 /**
@@ -363,7 +379,7 @@ export async function restartGateway(): Promise<void> {
   // Restarting gateway
   await stopGatewayServer();
   gatewayRunning = false;
-  startGateway();
+  await startGateway();
 }
 
 /**
