@@ -68,11 +68,14 @@ describe("real-person auth QR refresh", () => {
   const originalFetch = globalThis.fetch;
   const originalApiKey = process.env.MFA_AUTH_API_KEY;
 
+  const originalRealPersonAuthFlag = process.env.CCLAWD_REAL_PERSON_AUTH_ENABLED;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.restoreAllMocks();
     vi.stubGlobal("fetch", vi.fn());
     process.env.MFA_AUTH_API_KEY = "test-api-key";
+    process.env.CCLAWD_REAL_PERSON_AUTH_ENABLED = "1";
     delete process.env.DABBY_AUTH_H5_BASE_URL;
     setAuthStore({});
   });
@@ -84,6 +87,21 @@ describe("real-person auth QR refresh", () => {
     } else {
       process.env.MFA_AUTH_API_KEY = originalApiKey;
     }
+    if (originalRealPersonAuthFlag === undefined) {
+      delete process.env.CCLAWD_REAL_PERSON_AUTH_ENABLED;
+    } else {
+      process.env.CCLAWD_REAL_PERSON_AUTH_ENABLED = originalRealPersonAuthFlag;
+    }
+  });
+
+  it("skips gate checks when the unified real-person auth flag is disabled", async () => {
+    process.env.CCLAWD_REAL_PERSON_AUTH_ENABLED = "0";
+    const fetchMock = vi.mocked(globalThis.fetch);
+
+    const result = await resolveFeishuRealPersonAuthGate(createParams());
+
+    expect(result).toEqual({ action: "allow" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("reuses an unexpired pending certToken within five minutes", async () => {

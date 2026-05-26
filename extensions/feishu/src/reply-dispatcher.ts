@@ -17,6 +17,7 @@ import { createFeishuClient } from "./client.js";
 import { sendMediaFeishu } from "./media.js";
 import type { MentionTarget } from "./mention.js";
 import { buildMentionedCardContent } from "./mention.js";
+import { isRealPersonAuthEnabled } from "./real-person-auth-flag.js";
 import { resolveFeishuRealPersonAuthGate } from "./real-person-auth.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { sendMessageFeishu, sendStructuredCardFeishu, type CardHeaderConfig } from "./send.js";
@@ -125,7 +126,7 @@ export function createFeishuReplyDispatcher(params: CreateFeishuReplyDispatcherP
   const isDirectChat = params.chatType === "p2p" || params.chatType === "private";
 
   const maybeSendRealPersonChallenge = async (reasonText: string): Promise<boolean> => {
-    if (!isDirectChat || !senderIdForAuth || !isGuardRiskBlock(reasonText)) {
+    if (!isRealPersonAuthEnabled() || !isDirectChat || !senderIdForAuth || !isGuardRiskBlock(reasonText)) {
       return false;
     }
     const target = formatFeishuTarget(senderIdForAuth, detectIdType(senderIdForAuth) ?? undefined);

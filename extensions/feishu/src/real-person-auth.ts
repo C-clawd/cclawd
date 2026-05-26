@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { config as dotenvConfig } from "dotenv";
+import { isRealPersonAuthEnabled } from "./real-person-auth-flag.js";
 
 const REAL_PERSON_AUTH_API_BASE_URL = "https://cclawd.dbhl.cn";
 const REAL_PERSON_AUTH_H5_BASE_URL = "https://h5.dabby.com.cn";
@@ -238,6 +239,10 @@ function isRealPersonCertExpired(record: RealPersonAuthRecord | undefined, now =
 export async function checkFeishuRealPersonAuthStatus(
   params: FeishuRealPersonAuthStatusParams,
 ): Promise<FeishuRealPersonAuthStatusResult> {
+  if (!isRealPersonAuthEnabled()) {
+    return { status: "success" };
+  }
+
   const authFilePath = resolveRealPersonAuthStorePath();
   const authData = await readRealPersonAuthStore(authFilePath, params.error);
   const userAuth = authData[params.senderId];
@@ -290,6 +295,10 @@ export async function checkFeishuRealPersonAuthStatus(
 export async function resolveFeishuRealPersonAuthGate(
   params: FeishuRealPersonAuthGateParams,
 ): Promise<FeishuRealPersonAuthGateResult> {
+  if (!isRealPersonAuthEnabled()) {
+    return { action: "allow" };
+  }
+
   try {
     const authFilePath = resolveRealPersonAuthStorePath();
     const authData = await readRealPersonAuthStore(authFilePath, params.error);

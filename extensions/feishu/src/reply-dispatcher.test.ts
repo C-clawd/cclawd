@@ -13,6 +13,7 @@ const addTypingIndicatorMock = vi.hoisted(() => vi.fn(async () => ({ messageId: 
 const removeTypingIndicatorMock = vi.hoisted(() => vi.fn(async () => {}));
 const streamingInstances = vi.hoisted(() => [] as any[]);
 const resolveFeishuRealPersonAuthGateMock = vi.hoisted(() => vi.fn());
+const isRealPersonAuthEnabledMock = vi.hoisted(() => vi.fn(() => true));
 const detectIdTypeMock = vi.hoisted(() => vi.fn());
 const formatFeishuTargetMock = vi.hoisted(() => vi.fn());
 
@@ -29,6 +30,9 @@ vi.mock("./targets.js", () => ({
   resolveReceiveIdType: resolveReceiveIdTypeMock,
   detectIdType: detectIdTypeMock,
   formatFeishuTarget: formatFeishuTargetMock,
+}));
+vi.mock("./real-person-auth-flag.js", () => ({
+  isRealPersonAuthEnabled: () => isRealPersonAuthEnabledMock(),
 }));
 vi.mock("./real-person-auth.js", () => ({
   resolveFeishuRealPersonAuthGate: resolveFeishuRealPersonAuthGateMock,

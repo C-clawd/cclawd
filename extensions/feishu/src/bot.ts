@@ -46,6 +46,7 @@ import {
   checkFeishuRealPersonAuthStatus,
   resolveFeishuRealPersonAuthGate,
 } from "./real-person-auth.js";
+import { isRealPersonAuthEnabled } from "./real-person-auth-flag.js";
 import { createFeishuReplyDispatcher } from "./reply-dispatcher.js";
 import { getFeishuRuntime } from "./runtime.js";
 import { getMessageFeishu, listFeishuThreadMessages, sendMessageFeishu } from "./send.js";
@@ -362,7 +363,8 @@ export async function handleFeishuMessage(params: {
   };
 
   const requiresRealPersonAuth = Boolean(
-    !skipRealPersonAuth &&
+    isRealPersonAuthEnabled() &&
+      !skipRealPersonAuth &&
       (ctx.chatType === "p2p" || ctx.chatType === "private") &&
       senderIdForAuth &&
       senderIdForAuth !== botOpenId,
