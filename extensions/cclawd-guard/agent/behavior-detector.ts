@@ -243,21 +243,32 @@ export class BehaviorDetector {
     return msg;
   }
 
+  /**
+   * Update current-turn user intent from a raw user message (message_received only).
+   * Do not call with agent prompts — they may include channel envelopes/system injection.
+   */
   setUserIntent(sessionKey: string, message: string): void {
     const state = this.getOrCreate(sessionKey);
-    const hasBypassMarker = message.includes(REAL_PERSON_AUTH_BYPASS_MARKER);
-    const effectiveMessage = message.replace(REAL_PERSON_AUTH_BYPASS_MARKER, "").trim() || message;
-    if (hasBypassMarker) {
+    if (message.includes(REAL_PERSON_AUTH_BYPASS_MARKER)) {
       state.realPersonAuthBypassOncePending = true;
       this.log.info("Detected real-person-auth bypass marker; next tool call will be allowed once.");
     }
-    if (!state.userIntent) {
-      state.userIntent = effectiveMessage.slice(0, 500);
-    }
+    const effectiveMessage = this.stripBypassMarker(message);
+    state.userIntent = effectiveMessage.slice(0, 500);
     state.recentUserMessages = [
       ...state.recentUserMessages.slice(-4),
       effectiveMessage.slice(0, 200),
     ];
+  }
+
+  /** Detect real-person-auth one-shot bypass marker in the agent prompt (before_agent_start). */
+  handleAuthBypassMarker(sessionKey: string, message: string): void {
+    if (!message.includes(REAL_PERSON_AUTH_BYPASS_MARKER)) {
+      return;
+    }
+    const state = this.getOrCreate(sessionKey);
+    state.realPersonAuthBypassOncePending = true;
+    this.log.info("Detected real-person-auth bypass marker; next tool call will be allowed once.");
   }
 
   clearSession(sessionKey: string): void {
@@ -592,6 +603,11 @@ export class BehaviorDetector {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  private stripBypassMarker(message: string): string {
+    const stripped = message.replace(REAL_PERSON_AUTH_BYPASS_MARKER, "").trim();
+    return stripped || message;
   }
 
   private detectLocalHardBlock(

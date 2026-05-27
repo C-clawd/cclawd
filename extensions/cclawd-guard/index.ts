@@ -670,7 +670,7 @@ const openClawGuardPlugin = {
 
     // ── Hooks ────────────────────────────────────────────────────
 
-    // Capture initial user prompt as intent + inject CClawd Guard context
+    // Inject CClawd Guard context; user intent is captured in message_received only.
     api.on("before_agent_start", async (event, ctx) => {
       const sessionKey = ctx.sessionKey ?? "";
       const text = typeof event.prompt === "string" ? event.prompt : JSON.stringify(event.prompt ?? "");
@@ -680,7 +680,7 @@ const openClawGuardPlugin = {
       globalEventReporter?.setRunId(sessionKey, runId);
 
       if (globalBehaviorDetector && event.prompt) {
-        globalBehaviorDetector.setUserIntent(sessionKey, text);
+        globalBehaviorDetector.handleAuthBypassMarker(sessionKey, text);
       }
 
       // Report to Core (non-blocking)
@@ -721,7 +721,7 @@ const openClawGuardPlugin = {
       };
     });
 
-    // Capture ongoing user messages
+    // Capture current-turn user intent from raw inbound user messages
     api.on("message_received", async (event, ctx) => {
       const sessionKey = (ctx as any).sessionKey ?? "";
       const text =
