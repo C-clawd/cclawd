@@ -317,21 +317,12 @@ const openClawGuardPlugin = {
     const log = createLogger(api.logger);
 
     // ── Start AI Security Gateway (in-process) ────────────────────────
-    // Gateway runs in the plugin process and is always available.
-    // Users enable sanitization via /sanitize on, which routes agents through it.
+    // Gateway proxy runs in the plugin process; sanitization routing is opt-in via /sanitize on.
     // Async: waits for port availability (old process may hold it during plugin update).
     if (!gatewayBootstrapPromise) {
       gatewayBootstrapPromise = (async () => {
         await startGateway();
-        log.debug?.("AI Security Gateway started");
-        try {
-          // 默认自动开启网关路由 (Auto-enable gateway routing by default)
-          const res = await enableGateway();
-          log.info(`AI Security Gateway auto-enabled for: ${res.providers.join(", ")}`);
-        } catch (err) {
-          // If already enabled or no providers, it will throw, which is fine
-          log.debug?.(`Gateway auto-enable skipped: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        log.info("AI Security Gateway proxy started (sanitization off until /sanitize on)");
       })().catch((err) => {
         gatewayBootstrapPromise = null;
         throw err;
@@ -1577,6 +1568,8 @@ const openClawGuardPlugin = {
               "Usage:",
               "  /sanitize on  — Enable data sanitization",
               "  /sanitize off — Disable data sanitization",
+              "",
+              "Sanitization routing is off by default on startup; run /sanitize on when needed.",
               "",
               "The AI Security Gateway protects sensitive data before sending to LLMs:",
               "- API keys → <SECRET_TOKEN>",

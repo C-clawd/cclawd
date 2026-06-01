@@ -37,6 +37,7 @@ import {
   resolveOpenAIServiceTier,
 } from "./openai-stream-wrappers.js";
 import { createXaiFastModeWrapper } from "./xai-stream-wrappers.js";
+import { createToolStreamWrapper } from "./zai-stream-wrappers.js";
 
 const defaultProviderRuntimeDeps = {
   prepareProviderExtraParams: prepareProviderExtraParamsRuntime,
@@ -307,6 +308,29 @@ export function applyExtraParamsToAgent(
       thinkingLevel,
     });
     agent.streamFn = createMoonshotThinkingWrapper(agent.streamFn, thinkingType);
+  }
+
+  if (!providerWrapperHandled && !shouldApplyMoonshotPayloadCompat({ provider, modelId })) {
+    const configuredThinkingType = resolveMoonshotThinkingType({
+      configuredThinking: effectiveExtraParams?.thinking,
+    });
+    if (configuredThinkingType) {
+      log.debug(
+        `applying configured thinking=${configuredThinkingType} for ${provider}/${modelId}`,
+      );
+      agent.streamFn = createMoonshotThinkingWrapper(agent.streamFn, configuredThinkingType);
+    }
+  }
+
+  const toolStreamProvidersWithPlugin = provider === "zai" || provider === "xai";
+  const glmToolStreamRequested =
+    effectiveExtraParams?.tool_stream === true ||
+    (modelId.trim().toLowerCase().startsWith("glm-") &&
+      effectiveExtraParams?.tool_stream !== false &&
+      provider.trim().toLowerCase().startsWith("custom-"));
+  if (!providerWrapperHandled && !toolStreamProvidersWithPlugin && glmToolStreamRequested) {
+    log.debug(`applying tool_stream for ${provider}/${modelId}`);
+    agent.streamFn = createToolStreamWrapper(agent.streamFn, true);
   }
 
   if (provider === "amazon-bedrock" && !isAnthropicBedrockModel(modelId)) {

@@ -160,9 +160,6 @@ async function handleOpenAIStream(
   // Create stream restorer for text content
   const streamRestorer = createStreamRestorer(mappingTable);
 
-  // Buffer for SSE chunks waiting for restoration
-  const pendingChunks: Array<{ parsed: OpenAISSEChunk; originalLine: string }> = [];
-
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -177,8 +174,6 @@ async function handleOpenAIStream(
 
       for (const line of lines) {
         if (!line.trim()) {
-          // Flush pending chunks before empty line
-          flushPendingChunks(pendingChunks, streamRestorer, res);
           res.write("\n");
           continue;
         }
@@ -189,39 +184,9 @@ async function handleOpenAIStream(
         }
 
         const dataContent = line.slice(6);
-        if (dataContent === "[DONE]") {
-          // Finalize any pending content
-          flushPendingChunks(pendingChunks, streamRestorer, res);
-          res.write(line + "\n");
-          continue;
-        }
-
-        try {
-          const parsed = JSON.parse(dataContent) as OpenAISSEChunk;
-          const textContent = parsed.choices?.[0]?.delta?.content;
-
-          if (textContent !== undefined && mappingTable.size > 0) {
-            // Process text through stream restorer
-            const restored = streamRestorer.process(textContent);
-
-            if (restored.length > 0) {
-              // We have restorable content - flush it
-              const restoredChunk = { ...parsed };
-              restoredChunk.choices = parsed.choices.map((c, i) =>
-                i === 0 ? { ...c, delta: { ...c.delta, content: restored } } : c
-              );
-              res.write(`data: ${JSON.stringify(restoredChunk)}\n`);
-            }
-
-            // If restorer is buffering, we don't output anything yet
-            // Content will be output when buffer is flushed
-          } else {
-            // No text content or no mappings - pass through
-            res.write(line + "\n");
-          }
-        } catch {
-          // Not valid JSON, pass through
-          res.write(line + "\n");
+        const outputLine = processOpenAIStreamDataLine(dataContent, mappingTable, streamRestorer);
+        if (outputLine !== null) {
+          res.write(outputLine + "\n");
         }
       }
     }
@@ -264,9 +229,17 @@ async function handleOpenAIStream(
 /**
  * OpenAI SSE chunk structure
  */
+interface OpenAISSEDelta {
+  content?: string;
+  role?: string;
+  tool_calls?: unknown[];
+  function_call?: unknown;
+  reasoning_content?: string;
+}
+
 interface OpenAISSEChunk {
   choices: Array<{
-    delta: { content?: string; role?: string };
+    delta: OpenAISSEDelta;
     index: number;
     finish_reason: string | null;
   }>;
@@ -274,14 +247,67 @@ interface OpenAISSEChunk {
 }
 
 /**
- * Flush pending chunks with restored content
+ * Delta fields that must not go through content-only StreamRestorer
+ * (tool_calls would be dropped if we only rewrite delta.content).
  */
-function flushPendingChunks(
-  _pendingChunks: Array<{ parsed: OpenAISSEChunk; originalLine: string }>,
-  _streamRestorer: ReturnType<typeof createStreamRestorer>,
-  _res: ServerResponse,
-): void {
-  // Currently unused - StreamRestorer handles buffering internally
+function deltaHasNonContentFields(delta: OpenAISSEDelta | undefined): boolean {
+  if (!delta) return false;
+  return (
+    delta.tool_calls !== undefined ||
+    delta.function_call !== undefined ||
+    delta.reasoning_content !== undefined ||
+    delta.role !== undefined
+  );
+}
+
+/**
+ * Process one OpenAI SSE data payload for streaming restoration.
+ * Returns the full `data: ...` line to write, or null to skip (buffering empty content).
+ */
+export function processOpenAIStreamDataLine(
+  dataContent: string,
+  mappingTable: MappingTable,
+  streamRestorer: ReturnType<typeof createStreamRestorer>,
+): string | null {
+  if (dataContent === "[DONE]") {
+    return "data: [DONE]";
+  }
+
+  if (mappingTable.size === 0) {
+    return `data: ${dataContent}`;
+  }
+
+  try {
+    const parsed = JSON.parse(dataContent) as OpenAISSEChunk;
+    const delta = parsed.choices?.[0]?.delta;
+
+    // tool_calls / reasoning / role chunks: restore whole JSON, preserve structure
+    if (deltaHasNonContentFields(delta)) {
+      const restored = restore(parsed, mappingTable) as OpenAISSEChunk;
+      return `data: ${JSON.stringify(restored)}`;
+    }
+
+    const textContent = delta?.content;
+    if (textContent !== undefined) {
+      const restoredContent = streamRestorer.process(textContent);
+      if (restoredContent.length === 0) {
+        return null;
+      }
+      const restoredChunk = {
+        ...parsed,
+        choices: parsed.choices.map((c, i) =>
+          i === 0 ? { ...c, delta: { ...c.delta, content: restoredContent } } : c,
+        ),
+      };
+      return `data: ${JSON.stringify(restoredChunk)}`;
+    }
+
+    // finish_reason / usage chunks without content
+    const restored = restore(parsed, mappingTable) as OpenAISSEChunk;
+    return `data: ${JSON.stringify(restored)}`;
+  } catch {
+    return `data: ${dataContent}`;
+  }
 }
 
 /**

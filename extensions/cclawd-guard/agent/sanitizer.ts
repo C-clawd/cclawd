@@ -19,12 +19,6 @@ type Entity = {
 };
 
 const ENTITIES: Entity[] = [
-  // URLs (must come before email to avoid partial matches on domain parts)
-  {
-    category: "URL",
-    placeholder: "<URL>",
-    pattern: /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g,
-  },
   // Email
   {
     category: "EMAIL",

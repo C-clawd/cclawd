@@ -13,7 +13,6 @@ import type { SanitizeResult, MappingTable } from "./types.js";
 
 type EntityType =
   | "EMAIL_ADDRESS"
-  | "URL_ADDRESS"
   | "PHONE_NUMBER"
   | "BANK_NUMBER"
   | "PRIVATE_KEY"
@@ -47,12 +46,6 @@ const ENTITY_PATTERNS: EntityPattern[] = [
     type: "EMAIL_ADDRESS",
     pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
     score: 0.90,
-  },
-  // URLs
-  {
-    type: "URL_ADDRESS",
-    pattern: /https?:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+/g,
-    score: 0.80,
   },
   // Known API key prefixes
   {
