@@ -193,6 +193,9 @@ export type OnQuotaExceededCallback = (info: QuotaExceededInfo) => void;
 
 const MAX_SESSIONS = 200;
 const MAX_CHAIN_ENTRIES = 50;
+/** Cap prior content-scan hits fed into behavior/assess per session. */
+const MAX_CONTENT_INJECTION_FINDINGS = 24;
+const MAX_CONTENT_MATCHED_TEXT_CHARS = 200;
 
 export class BehaviorDetector {
   private sessions = new Map<string, SessionState>();
@@ -276,6 +279,63 @@ export class BehaviorDetector {
   }
 
   /**
+   * Persist Core content-scan hits for subsequent behavior/assess calls.
+   * Dedupes by category + matched snippet and keeps only high/medium confidence.
+   */
+  recordContentScanFindings(
+    sessionKey: string,
+    sourceToolName: string,
+    scanResult: ContentScanResult,
+  ): void {
+    if (!scanResult.detected || scanResult.findings.length === 0) {
+      return;
+    }
+
+    const state = this.getOrCreate(sessionKey);
+    const seen = new Set(
+      state.contentInjectionFindings.map(
+        (f) => `${f.category}:${f.matchedText.slice(0, 80)}`,
+      ),
+    );
+    let added = 0;
+
+    for (const finding of scanResult.findings) {
+      if (finding.confidence === "low") {
+        continue;
+      }
+      const category = (finding.scanner || finding.name || "unknown").trim();
+      if (!category) {
+        continue;
+      }
+      const matchedText = (finding.matchedText ?? "").slice(0, MAX_CONTENT_MATCHED_TEXT_CHARS);
+      const dedupeKey = `${category}:${matchedText.slice(0, 80)}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+
+      state.contentInjectionFindings.push({
+        category,
+        matchedText,
+        pattern: `${sourceToolName}:${finding.name}`,
+        confidence: finding.confidence === "high" ? "high" : "medium",
+      });
+      added++;
+
+      while (state.contentInjectionFindings.length > MAX_CONTENT_INJECTION_FINDINGS) {
+        state.contentInjectionFindings.shift();
+      }
+    }
+
+    if (added > 0) {
+      this.log.info(
+        `Recorded ${added} content finding(s) from "${sourceToolName}" for assess ` +
+          `(session total=${state.contentInjectionFindings.length})`,
+      );
+    }
+  }
+
+  /**
    * Called at before_tool_call. Returns a block decision or undefined (allow).
    *
    * All tool calls are sent to Core to build a complete tool chain.
@@ -326,9 +386,12 @@ export class BehaviorDetector {
       params: sanitizeParams(event.params),
     };
 
-    // Collect content injection findings (if any)
+    // Collect content injection findings from prior Core content scans (if any)
     const contentFindings = state.contentInjectionFindings.length > 0
-      ? [...state.contentInjectionFindings]
+      ? state.contentInjectionFindings.map((f) => ({
+          ...f,
+          scanner: f.category,
+        }))
       : undefined;
 
     // Call Core assess API

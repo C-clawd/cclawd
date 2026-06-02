@@ -911,6 +911,12 @@ const openClawGuardPlugin = {
                 `Core: injection detected in "${event.toolName}" result: ${scanResult.summary}`,
               );
 
+              globalBehaviorDetector.recordContentScanFindings(
+                ctx.sessionKey ?? "",
+                event.toolName,
+                scanResult,
+              );
+
               // Record risk event for local agentic hours
               globalDashboardClient?.recordRiskEvent();
             }
