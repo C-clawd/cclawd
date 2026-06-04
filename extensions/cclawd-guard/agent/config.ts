@@ -2,7 +2,7 @@
  * CClawd Guard plugin configuration and credential management
  */
 
-import type { CClawdGuardConfig } from "./types.js";
+import type { CClawdGuardConfig, RiskPolicy } from "./types.js";
 import os from "node:os";
 import path from "node:path";
 import { existsSync, mkdirSync, writeFileSync, unlinkSync, readdirSync } from "node:fs";
@@ -249,11 +249,23 @@ export async function pollAccountEmail(
 // Default Configuration
 // =============================================================================
 
-export type ResolvedGuardConfig = Required<Omit<CClawdGuardConfig, "plan">> & Pick<CClawdGuardConfig, "plan">;
+export type ResolvedGuardConfig = Required<Omit<CClawdGuardConfig, "plan" | "blockOnRisk">> &
+  Pick<CClawdGuardConfig, "plan" | "blockOnRisk"> & {
+    riskPolicy: RiskPolicy;
+  };
+
+export function resolveRiskPolicy(config?: Partial<CClawdGuardConfig>): RiskPolicy {
+  if (config?.riskPolicy) {
+    return config.riskPolicy;
+  }
+  const blockOnRisk = config?.blockOnRisk ?? DEFAULT_CONFIG.blockOnRisk ?? true;
+  return blockOnRisk ? "block" : "allow";
+}
 
 export const DEFAULT_CONFIG: ResolvedGuardConfig = {
   enabled: true,
   blockOnRisk: true,
+  riskPolicy: "block",
   apiKey: envApiKey,
   timeoutMs: 60000,
   coreUrl: DEFAULT_CORE_URL,
@@ -484,9 +496,11 @@ export function getProfileWatchPaths(openclawDir?: string): string[] {
 
 export function resolveConfig(config?: Partial<CClawdGuardConfig>): ResolvedGuardConfig {
   const plan = config?.plan;
+  const riskPolicy = resolveRiskPolicy(config);
   return {
     enabled: config?.enabled ?? DEFAULT_CONFIG.enabled,
-    blockOnRisk: config?.blockOnRisk ?? DEFAULT_CONFIG.blockOnRisk,
+    blockOnRisk: riskPolicy === "block",
+    riskPolicy,
     apiKey: config?.apiKey ?? DEFAULT_CONFIG.apiKey,
     timeoutMs: config?.timeoutMs ?? DEFAULT_CONFIG.timeoutMs,
     coreUrl: (config?.coreUrl ?? DEFAULT_CONFIG.coreUrl).replace(/\/+$/, ""),

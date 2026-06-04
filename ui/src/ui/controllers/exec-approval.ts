@@ -27,6 +27,47 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+export function parseRiskApprovalAsExec(payload: unknown): ExecApprovalRequest | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+  const id = typeof payload.id === "string" ? payload.id.trim() : "";
+  const request = payload.request;
+  if (!id || !isRecord(request)) {
+    return null;
+  }
+  const toolName = typeof request.toolName === "string" ? request.toolName.trim() : "";
+  const explanation = typeof request.explanation === "string" ? request.explanation.trim() : "";
+  if (!toolName || !explanation) {
+    return null;
+  }
+  const paramsPreview =
+    typeof request.paramsPreview === "string" ? request.paramsPreview.trim() : "";
+  const riskLevel = typeof request.riskLevel === "string" ? request.riskLevel : "unknown";
+  const createdAtMs = typeof payload.createdAtMs === "number" ? payload.createdAtMs : 0;
+  const expiresAtMs = typeof payload.expiresAtMs === "number" ? payload.expiresAtMs : 0;
+  if (!createdAtMs || !expiresAtMs) {
+    return null;
+  }
+  const command = [
+    `[CClawd Guard] ${toolName} (${riskLevel})`,
+    explanation,
+    paramsPreview ? `\n${paramsPreview}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    id,
+    request: {
+      command,
+      agentId: typeof request.agentId === "string" ? request.agentId : null,
+      sessionKey: typeof request.sessionKey === "string" ? request.sessionKey : null,
+    },
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
 export function parseExecApprovalRequested(payload: unknown): ExecApprovalRequest | null {
   if (!isRecord(payload)) {
     return null;

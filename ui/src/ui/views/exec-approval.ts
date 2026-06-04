@@ -28,6 +28,7 @@ export function renderExecApprovalPrompt(state: AppViewState) {
     return nothing;
   }
   const request = active.request;
+  const isRiskApproval = active.id.toLowerCase().startsWith("risk");
   const remainingMs = active.expiresAtMs - Date.now();
   const remaining = remainingMs > 0 ? `expires in ${formatRemaining(remainingMs)}` : "expired";
   const queueCount = state.execApprovalQueue.length;
@@ -36,7 +37,9 @@ export function renderExecApprovalPrompt(state: AppViewState) {
       <div class="exec-approval-card">
         <div class="exec-approval-header">
           <div>
-            <div class="exec-approval-title">Exec approval needed</div>
+            <div class="exec-approval-title">
+              ${isRiskApproval ? "Guard risk approval needed" : "Exec approval needed"}
+            </div>
             <div class="exec-approval-sub">${remaining}</div>
           </div>
           ${

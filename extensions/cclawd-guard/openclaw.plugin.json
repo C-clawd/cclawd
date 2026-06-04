@@ -12,7 +12,12 @@
       },
       "blockOnRisk": {
         "type": "boolean",
-        "description": "Block actions when risk is detected"
+        "description": "Deprecated: use riskPolicy. When true and riskPolicy is unset, blocks on risk."
+      },
+      "riskPolicy": {
+        "type": "string",
+        "enum": ["block", "approve", "allow"],
+        "description": "block=deny risky tools; approve=ask operator via /approve; allow=log only"
       },
       "apiKey": {
         "type": "string",
@@ -43,7 +48,11 @@
     },
     "blockOnRisk": {
       "label": "Block on Risk",
-      "help": "Automatically block suspicious actions"
+      "help": "Deprecated — prefer riskPolicy"
+    },
+    "riskPolicy": {
+      "label": "Risk policy",
+      "help": "block, approve (human /approve), or allow (monitor only)"
     }
   }
 }

@@ -24,6 +24,7 @@ import {
   addExecApproval,
   parseExecApprovalRequested,
   parseExecApprovalResolved,
+  parseRiskApprovalAsExec,
   removeExecApproval,
 } from "./controllers/exec-approval.ts";
 import { loadHealthState } from "./controllers/health.ts";
@@ -385,8 +386,11 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     void loadDevices(host as unknown as OpenClawApp, { quiet: true });
   }
 
-  if (evt.event === "exec.approval.requested") {
-    const entry = parseExecApprovalRequested(evt.payload);
+  if (evt.event === "exec.approval.requested" || evt.event === "risk.approval.requested") {
+    const entry =
+      evt.event === "risk.approval.requested"
+        ? parseRiskApprovalAsExec(evt.payload)
+        : parseExecApprovalRequested(evt.payload);
     if (entry) {
       host.execApprovalQueue = addExecApproval(host.execApprovalQueue, entry);
       host.execApprovalError = null;
@@ -398,7 +402,7 @@ function handleGatewayEventUnsafe(host: GatewayHost, evt: GatewayEventFrame) {
     return;
   }
 
-  if (evt.event === "exec.approval.resolved") {
+  if (evt.event === "exec.approval.resolved" || evt.event === "risk.approval.resolved") {
     const resolved = parseExecApprovalResolved(evt.payload);
     if (resolved) {
       host.execApprovalQueue = removeExecApproval(host.execApprovalQueue, resolved.id);

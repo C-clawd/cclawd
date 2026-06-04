@@ -24,6 +24,9 @@ export type ExecApprovalForwardingConfig = {
   targets?: ExecApprovalForwardTarget[];
 };
 
+export type RiskApprovalForwardingConfig = ExecApprovalForwardingConfig;
+
 export type ApprovalsConfig = {
   exec?: ExecApprovalForwardingConfig;
+  risk?: RiskApprovalForwardingConfig;
 };

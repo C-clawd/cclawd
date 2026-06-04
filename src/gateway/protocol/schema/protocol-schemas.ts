@@ -94,6 +94,12 @@ import {
   ExecApprovalResolveParamsSchema,
 } from "./exec-approvals.js";
 import {
+  RiskApprovalRequestParamsSchema,
+  RiskApprovalResolveParamsSchema,
+  RiskApprovalWaitDecisionParamsSchema,
+  RiskApprovalGetDecisionParamsSchema,
+} from "./risk-approvals.js";
+import {
   ConnectParamsSchema,
   ErrorShapeSchema,
   EventFrameSchema,
@@ -294,6 +300,10 @@ export const ProtocolSchemas = {
   ExecApprovalsSnapshot: ExecApprovalsSnapshotSchema,
   ExecApprovalRequestParams: ExecApprovalRequestParamsSchema,
   ExecApprovalResolveParams: ExecApprovalResolveParamsSchema,
+  RiskApprovalRequestParams: RiskApprovalRequestParamsSchema,
+  RiskApprovalResolveParams: RiskApprovalResolveParamsSchema,
+  RiskApprovalWaitDecisionParams: RiskApprovalWaitDecisionParamsSchema,
+  RiskApprovalGetDecisionParams: RiskApprovalGetDecisionParamsSchema,
   DevicePairListParams: DevicePairListParamsSchema,
   DevicePairApproveParams: DevicePairApproveParamsSchema,
   DevicePairRejectParams: DevicePairRejectParamsSchema,

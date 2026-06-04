@@ -124,6 +124,14 @@ import {
   ExecApprovalRequestParamsSchema,
   type ExecApprovalResolveParams,
   ExecApprovalResolveParamsSchema,
+  type RiskApprovalRequestParams,
+  RiskApprovalRequestParamsSchema,
+  type RiskApprovalResolveParams,
+  RiskApprovalResolveParamsSchema,
+  type RiskApprovalWaitDecisionParams,
+  RiskApprovalWaitDecisionParamsSchema,
+  type RiskApprovalGetDecisionParams,
+  RiskApprovalGetDecisionParamsSchema,
   ErrorCodes,
   type ErrorShape,
   ErrorShapeSchema,
@@ -430,6 +438,18 @@ export const validateExecApprovalRequestParams = ajv.compile<ExecApprovalRequest
 );
 export const validateExecApprovalResolveParams = ajv.compile<ExecApprovalResolveParams>(
   ExecApprovalResolveParamsSchema,
+);
+export const validateRiskApprovalRequestParams = ajv.compile<RiskApprovalRequestParams>(
+  RiskApprovalRequestParamsSchema,
+);
+export const validateRiskApprovalResolveParams = ajv.compile<RiskApprovalResolveParams>(
+  RiskApprovalResolveParamsSchema,
+);
+export const validateRiskApprovalWaitDecisionParams = ajv.compile<RiskApprovalWaitDecisionParams>(
+  RiskApprovalWaitDecisionParamsSchema,
+);
+export const validateRiskApprovalGetDecisionParams = ajv.compile<RiskApprovalGetDecisionParams>(
+  RiskApprovalGetDecisionParamsSchema,
 );
 export const validateExecApprovalsNodeGetParams = ajv.compile<ExecApprovalsNodeGetParams>(
   ExecApprovalsNodeGetParamsSchema,

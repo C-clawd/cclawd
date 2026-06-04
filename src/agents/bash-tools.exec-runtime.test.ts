@@ -14,6 +14,9 @@ import {
   buildExecExitOutcome,
   emitExecSystemEvent,
   formatExecFailureReason,
+  resolveWindowsPowerShellEncodedPayload,
+  resolveWindowsPowerShellInvocation,
+  toPowerShellUtf16LeBase64,
 } from "./bash-tools.exec-runtime.js";
 
 const requestHeartbeatNowMock = vi.mocked(requestHeartbeatNow);
@@ -137,5 +140,35 @@ describe("buildExecExitOutcome", () => {
       timedOut: true,
       reason: expect.stringContaining("30 seconds"),
     });
+  });
+});
+
+describe("resolveWindowsPowerShellInvocation", () => {
+  it("maps utf-8 test payloads to Write-Output on win32", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const resolved = resolveWindowsPowerShellInvocation("powershell -enc dGVzdA==");
+      expect(resolved).toEqual({ mode: "command", command: "Write-Output 'test'" });
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
+  });
+
+  it("re-encodes utf-8 base64 test payloads for PowerShell", () => {
+    expect(resolveWindowsPowerShellEncodedPayload("dGVzdA==")).toBe(
+      toPowerShellUtf16LeBase64("test"),
+    );
+  });
+
+  it("leaves regular commands unchanged on win32", () => {
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const resolved = resolveWindowsPowerShellInvocation("echo hello");
+      expect(resolved).toEqual({ mode: "command", command: "echo hello" });
+    } finally {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+    }
   });
 });

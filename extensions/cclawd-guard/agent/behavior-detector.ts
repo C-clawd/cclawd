@@ -18,7 +18,17 @@ import type {
   ContentInjectionFinding,
   Logger,
   DetectionFinding,
+  RiskPolicy,
 } from "./types.js";
+import {
+  buildRiskParamsHash,
+  formatRiskParamsPreview,
+  type RiskApprovalDecision,
+} from "../../../src/infra/risk-approvals.js";
+import {
+  getRiskApprovalDecision,
+  registerRiskApprovalRequest,
+} from "./risk-approval-client.js";
 import { sanitizeContent } from "./sanitizer.js";
 import { getMachineInfo } from "./machine-id.js";
 
@@ -68,7 +78,7 @@ const LOCAL_HARD_BLOCK_RULES: LocalHardBlockRule[] = [
     id: "DESTRUCTIVE-RM",
     riskType: "COMMAND_EXECUTION",
     message: "Destructive delete pattern (rm -rf)",
-    pattern: /\brm\s+-rf\s+(?:\/|~|\$home|\/home)\b/i,
+    pattern: /\brm\s+-rf\b/i,
   },
   {
     id: "DESTRUCTIVE-PS-REMOVE",
@@ -102,6 +112,19 @@ const LOCAL_HARD_BLOCK_RULES: LocalHardBlockRule[] = [
   },
 ];
 
+function inferExecParamsFromUserMessage(message: string): Record<string, unknown> | null {
+  const trimmed = message.trim();
+  const afterColon = trimmed.match(/[：:]\s*([\s\S]+)$/);
+  const candidate = (afterColon?.[1] ?? trimmed).trim();
+  const shellMatch = candidate.match(
+    /(?:powershell|bash|sh|cmd|curl|wget|rm|del)\b[\s\S]+/i,
+  );
+  if (shellMatch?.[0]?.trim()) {
+    return { command: shellMatch[0].trim() };
+  }
+  return null;
+}
+
 // =============================================================================
 // Session State (lightweight — only chain history + content findings)
 // =============================================================================
@@ -116,6 +139,12 @@ interface SessionState {
   contentInjectionFindings: ContentInjectionFinding[];
   startedAt: number;
   realPersonAuthBypassOncePending?: boolean;
+  riskAllowParamHashes: Set<string>;
+  /** paramsHash → pending approval (approve policy, fast-fail). */
+  pendingRiskApprovals: Map<
+    string,
+    { id: string; slug: string; expiresAtMs: number }
+  >;
 }
 
 // =============================================================================
@@ -156,7 +185,10 @@ export type DetectionConfig = {
   coreUrl: string;
   /** Timeout for Core assess call (ms). Capped at ~3s to avoid holding up agent. */
   assessTimeoutMs: number;
+  /** @deprecated Prefer riskPolicy. Kept for callers/tests. */
   blockOnRisk: boolean;
+  riskPolicy: RiskPolicy;
+  riskApprovalTimeoutMs: number;
   pluginVersion: string;
 };
 
@@ -264,6 +296,104 @@ export class BehaviorDetector {
     ];
   }
 
+  /**
+   * When the user pastes a risky shell command, register approval and inject the
+   * /approve prompt into chat before the model runs — even if the model never calls exec.
+   */
+  async registerProactiveRiskApproval(
+    ctx: { sessionKey: string; agentId?: string },
+    userMessage: string,
+  ): Promise<void> {
+    if (this.config.riskPolicy !== "approve") {
+      return;
+    }
+    const trimmed = userMessage.trim();
+    if (!trimmed) {
+      return;
+    }
+    const toolName = "exec";
+    const inferred = inferExecParamsFromUserMessage(trimmed);
+    const params = inferred ?? { command: trimmed };
+    const localHardBlock = this.detectLocalHardBlock("", toolName, params);
+    if (!localHardBlock) {
+      return;
+    }
+
+    const state = this.getOrCreate(ctx.sessionKey);
+    const paramsHash = buildRiskParamsHash(toolName, params);
+    if (state.riskAllowParamHashes.has(paramsHash) || state.pendingRiskApprovals.has(paramsHash)) {
+      return;
+    }
+
+    const paramsPreview = formatRiskParamsPreview(toolName, params);
+    let registration: { id: string; slug: string; expiresAtMs: number } | null;
+    try {
+      registration = await registerRiskApprovalRequest({
+        toolName,
+        paramsPreview,
+        paramsHash,
+        toolParams: params,
+        riskLevel: "high",
+        confidence: 1,
+        explanation: `${localHardBlock.message} (local rule ${localHardBlock.ruleId})`,
+        ruleId: localHardBlock.ruleId,
+        agentId: ctx.agentId ?? this.coreCredentials?.agentId ?? null,
+        sessionKey: ctx.sessionKey,
+        runId: state.runId,
+        toolCallId: null,
+        timeoutMs: this.config.riskApprovalTimeoutMs,
+      });
+    } catch (err) {
+      this.log.error(`Proactive risk approval failed: ${String(err)}`);
+      return;
+    }
+    if (!registration) {
+      return;
+    }
+    state.pendingRiskApprovals.set(paramsHash, registration);
+    this.log.info(
+      `Proactive risk approval ${registration.slug} for user command; awaiting /approve`,
+    );
+  }
+
+  /**
+   * Sync session allowlist state after gateway resolves an approval (including auto-retry).
+   */
+  applyRiskApprovalResolution(resolved: {
+    id: string;
+    decision: RiskApprovalDecision;
+    request?: {
+      paramsHash?: string;
+      sessionKey?: string | null;
+    };
+  }): void {
+    const sessionKey = resolved.request?.sessionKey?.trim();
+    if (!sessionKey) {
+      return;
+    }
+    const state = this.sessions.get(sessionKey);
+    if (!state) {
+      return;
+    }
+    const paramsHash = resolved.request?.paramsHash;
+    if (paramsHash) {
+      if (resolved.decision === "allow-always") {
+        state.riskAllowParamHashes.add(paramsHash);
+      }
+      if (state.pendingRiskApprovals.has(paramsHash)) {
+        state.pendingRiskApprovals.delete(paramsHash);
+      }
+    }
+    for (const [hash, pending] of state.pendingRiskApprovals) {
+      if (pending.id === resolved.id || pending.id.startsWith(resolved.id)) {
+        state.pendingRiskApprovals.delete(hash);
+      }
+    }
+    this.log.info(
+      `Risk approval ${resolved.decision} applied for session ${sessionKey.slice(0, 12)}…`,
+    );
+  }
+
   /** Detect real-person-auth one-shot bypass marker in the agent prompt (before_agent_start). */
   handleAuthBypassMarker(sessionKey: string, message: string): void {
     if (!message.includes(REAL_PERSON_AUTH_BYPASS_MARKER)) {
@@ -343,11 +473,13 @@ export class BehaviorDetector {
    */
   async onBeforeToolCall(
     ctx: { sessionKey: string; agentId?: string },
-    event: { toolName: string; params: Record<string, unknown> },
+    event: {
+      toolName: string;
+      params: Record<string, unknown>;
+      toolCallId?: string;
+      runId?: string;
+    },
   ): Promise<BlockDecision | undefined> {
-    // No credentials → can't call Core → allow
-    if (!this.coreCredentials) return undefined;
-
     const state = this.getOrCreate(ctx.sessionKey);
     if (state.realPersonAuthBypassOncePending) {
       state.realPersonAuthBypassOncePending = false;
@@ -360,27 +492,26 @@ export class BehaviorDetector {
       this.log.warn(
         `Local hard block [${localHardBlock.ruleId}] tool="${event.toolName}" marker="${localHardBlock.marker}"`,
       );
-      return {
-        block: true,
-        blockReason:
-          `CClawd Guard blocked [high]: ${localHardBlock.message} (local rule ${localHardBlock.ruleId})`,
-        findings: [
-          {
-            scanner: "behavior_local_rules",
-            name: `Local Hard Block ${localHardBlock.ruleId}`,
-            description: localHardBlock.message,
-            matchedText: localHardBlock.marker,
-            confidence: "high",
-            reason: "Matched local P0 hard-block rule before remote assess",
-            riskLevel: "high",
-            riskType: localHardBlock.riskType,
-            riskContent: localHardBlock.contextSnippet,
-          },
-        ],
-      };
+      const localFindings: DetectionFinding[] = [
+        {
+          riskLevel: "high",
+          riskType: localHardBlock.riskType as DetectionFinding["riskType"],
+          riskContent: localHardBlock.contextSnippet,
+          reason: localHardBlock.message,
+        },
+      ];
+      return this.resolveRiskIntervention(ctx, event, {
+        riskLevel: "high",
+        confidence: 1,
+        explanation: `${localHardBlock.message} (local rule ${localHardBlock.ruleId})`,
+        ruleId: localHardBlock.ruleId,
+        findings: localFindings,
+      });
     }
 
-    // Build pendingTool
+    // Remote assess requires Core credentials; local rules above still apply without them.
+    if (!this.coreCredentials) return undefined;
+
     const pendingTool: PendingToolCall = {
       toolName: event.toolName,
       params: sanitizeParams(event.params),
@@ -420,17 +551,17 @@ export class BehaviorDetector {
     // Fail-open: Core unavailable → allow
     if (!verdict) return undefined;
 
-    if (verdict.action === "block" && this.config.blockOnRisk) {
-      return {
-        block: true,
-        blockReason:
-          `CClawd Guard blocked [${verdict.riskLevel}]: ${verdict.explanation} ` +
-          `(confidence: ${Math.round(verdict.confidence * 100)}%)`,
+    if (verdict.action === "block") {
+      return this.resolveRiskIntervention(ctx, event, {
+        riskLevel: verdict.riskLevel,
+        confidence: verdict.confidence,
+        explanation: verdict.explanation,
+        anomalyTypes: verdict.anomalyTypes,
         findings: verdict.findings,
-      };
+      });
     }
 
-    if (verdict.action === "block" || verdict.action === "alert") {
+    if (verdict.action === "alert") {
       this.log.warn(
         `Behavioral anomaly [${verdict.riskLevel}/${Math.round(verdict.confidence * 100)}%]: ${verdict.explanation}`,
       );
@@ -553,6 +684,187 @@ export class BehaviorDetector {
 
   // ── Private helpers ──────────────────────────────────────────────
 
+  private buildBlockReason(riskLevel: string, explanation: string, suffix?: string): string {
+    const extra = suffix ? ` ${suffix}` : "";
+    return `CClawd Guard blocked [${riskLevel}]: ${explanation}${extra}`;
+  }
+
+  private async resolveRiskIntervention(
+    ctx: { sessionKey: string; agentId?: string },
+    event: {
+      toolName: string;
+      params: Record<string, unknown>;
+      toolCallId?: string;
+      runId?: string;
+    },
+    risk: {
+      riskLevel: string;
+      confidence: number;
+      explanation: string;
+      ruleId?: string;
+      anomalyTypes?: string[];
+      findings?: DetectionFinding[];
+    },
+  ): Promise<BlockDecision | undefined> {
+    const policy = this.config.riskPolicy;
+    if (policy === "allow") {
+      this.log.warn(
+        `Risk [${risk.riskLevel}/${Math.round(risk.confidence * 100)}%] (allow policy): ${risk.explanation}`,
+      );
+      return undefined;
+    }
+    if (policy === "block") {
+      return {
+        block: true,
+        blockReason:
+          `${this.buildBlockReason(risk.riskLevel, risk.explanation)} ` +
+          `(confidence: ${Math.round(risk.confidence * 100)}%)`,
+        findings: risk.findings,
+      };
+    }
+
+    const state = this.getOrCreate(ctx.sessionKey);
+    const paramsHash = buildRiskParamsHash(event.toolName, event.params);
+    if (state.riskAllowParamHashes.has(paramsHash)) {
+      return undefined;
+    }
+
+    const paramsPreview = formatRiskParamsPreview(event.toolName, event.params);
+    const pending = state.pendingRiskApprovals.get(paramsHash);
+    if (pending) {
+      if (pending.expiresAtMs <= Date.now()) {
+        state.pendingRiskApprovals.delete(paramsHash);
+      } else {
+        return this.resolvePendingRiskApproval(ctx, event, risk, paramsHash, pending, state);
+      }
+    }
+
+    let registration: { id: string; slug: string; expiresAtMs: number } | null;
+    try {
+      registration = await registerRiskApprovalRequest({
+        toolName: event.toolName,
+        paramsPreview,
+        paramsHash,
+        toolParams: event.params,
+        riskLevel: risk.riskLevel,
+        confidence: risk.confidence,
+        explanation: risk.explanation,
+        ruleId: risk.ruleId,
+        anomalyTypes: risk.anomalyTypes,
+        findings: risk.findings?.map((finding) => ({
+          riskLevel: finding.riskLevel,
+          riskType: finding.riskType,
+          reason: finding.reason,
+        })),
+        agentId: ctx.agentId ?? this.coreCredentials?.agentId ?? null,
+        sessionKey: ctx.sessionKey,
+        runId: event.runId ?? state.runId,
+        toolCallId: event.toolCallId ?? null,
+        timeoutMs: this.config.riskApprovalTimeoutMs,
+      });
+    } catch (err) {
+      this.log.error(`Risk approval request failed: ${String(err)}`);
+      return {
+        block: true,
+        blockReason: this.buildBlockReason(
+          risk.riskLevel,
+          risk.explanation,
+          "(approval unavailable)",
+        ),
+        findings: risk.findings,
+      };
+    }
+
+    if (!registration) {
+      return {
+        block: true,
+        blockReason: this.buildBlockReason(
+          risk.riskLevel,
+          risk.explanation,
+          "(approval unavailable)",
+        ),
+        findings: risk.findings,
+      };
+    }
+
+    state.pendingRiskApprovals.set(paramsHash, registration);
+    this.log.info(
+      `Risk approval registered ${registration.slug} for ${event.toolName}; blocking until /approve`,
+    );
+    return {
+      block: true,
+      blockReason: this.buildApprovalBlockReason(risk, registration.slug),
+      findings: risk.findings,
+    };
+  }
+
+  private async resolvePendingRiskApproval(
+    ctx: { sessionKey: string; agentId?: string },
+    event: { toolName: string; params: Record<string, unknown> },
+    risk: {
+      riskLevel: string;
+      explanation: string;
+      findings?: DetectionFinding[];
+    },
+    paramsHash: string,
+    pending: { id: string; slug: string; expiresAtMs: number },
+    state: SessionState,
+  ): Promise<BlockDecision> {
+    let decision: RiskApprovalDecision | null | "pending";
+    try {
+      decision = await getRiskApprovalDecision(pending.id);
+    } catch (err) {
+      this.log.error(`Risk approval getDecision failed: ${String(err)}`);
+      return {
+        block: true,
+        blockReason: this.buildBlockReason(
+          risk.riskLevel,
+          risk.explanation,
+          "(approval unavailable)",
+        ),
+        findings: risk.findings,
+      };
+    }
+
+    if (decision === "pending") {
+      return {
+        block: true,
+        blockReason: this.buildApprovalBlockReason(risk, pending.slug),
+        findings: risk.findings,
+      };
+    }
+
+    state.pendingRiskApprovals.delete(paramsHash);
+
+    if (decision === "allow-always") {
+      state.riskAllowParamHashes.add(paramsHash);
+    }
+    if (decision === "allow-once" || decision === "allow-always") {
+      this.log.info(`Risk approval granted (${decision}) for ${event.toolName}`);
+      return undefined;
+    }
+
+    const suffix =
+      decision === "deny"
+        ? "(denied by operator)"
+        : "(approval expired; re-run the command to request again)";
+    return {
+      block: true,
+      blockReason: this.buildBlockReason(risk.riskLevel, risk.explanation, suffix),
+      findings: risk.findings,
+    };
+  }
+
+  private buildApprovalBlockReason(
+    risk: { riskLevel: string; explanation: string },
+    slug: string,
+  ): string {
+    return (
+      `${this.buildBlockReason(risk.riskLevel, risk.explanation)} ` +
+      `(operator approval required — reply: /approve ${slug} allow-once | allow-always | deny; the command runs automatically after approval)`
+    );
+  }
+
   private getOrCreate(sessionKey: string): SessionState {
     if (!this.sessions.has(sessionKey)) {
       if (this.sessions.size >= MAX_SESSIONS) {
@@ -574,6 +886,8 @@ export class BehaviorDetector {
         completedChain: [],
         nextSeq: 0,
         contentInjectionFindings: [],
+        riskAllowParamHashes: new Set(),
+        pendingRiskApprovals: new Map(),
         startedAt: Date.now(),
       });
     }
@@ -638,14 +952,11 @@ export class BehaviorDetector {
           `autonomous=${info.isAutonomous}, firstNotify=${isFirstNotify})`,
         );
 
-        // Always set pending message if there isn't one already
-        // This ensures the message gets through even if previous attempts failed
         if (!this.pendingQuotaMessage) {
           this.pendingQuotaMessage = info;
           this.log.info("Core: stored pending quota message for next tool result");
         }
 
-        // First time notification: trigger callback
         if (isFirstNotify) {
           this.quotaExceededNotified = true;
           if (this.onQuotaExceeded) {
@@ -653,7 +964,6 @@ export class BehaviorDetector {
           }
         }
 
-        // Return null to fail-open (allow execution, no detection)
         return null;
       }
 

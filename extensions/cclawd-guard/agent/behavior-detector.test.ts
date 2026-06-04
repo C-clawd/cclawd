@@ -12,6 +12,8 @@ const config = {
   coreUrl: "http://test",
   assessTimeoutMs: 1000,
   blockOnRisk: true,
+  riskPolicy: "block" as const,
+  riskApprovalTimeoutMs: 5000,
   pluginVersion: "test",
 };
 
@@ -67,6 +69,69 @@ describe("BehaviorDetector content findings", () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]?.category).toBe("WEB-01");
     expect(findings[0]?.matchedText).toContain("<script>");
+  });
+});
+
+describe("BehaviorDetector approve policy (fast-fail)", () => {
+  it("registers approval and blocks immediately without waiting", async () => {
+    vi.resetModules();
+    vi.doMock("./risk-approval-client.js", () => ({
+      registerRiskApprovalRequest: vi.fn().mockResolvedValue({
+        id: "risk-test-id-full",
+        slug: "risk-test-id",
+        expiresAtMs: Date.now() + 120_000,
+      }),
+      getRiskApprovalDecision: vi.fn(),
+    }));
+    const { BehaviorDetector: Detector } = await import("./behavior-detector.js");
+    const detector = new Detector(
+      { ...config, riskPolicy: "approve" as const },
+      log,
+    );
+    const decision = await detector.onBeforeToolCall(
+      { sessionKey: "session-approve" },
+      { toolName: "exec", params: { command: "powershell -enc abc" } },
+    );
+    expect(decision?.block).toBe(true);
+    expect(decision?.blockReason).toContain("/approve risk-test-id");
+    expect(decision?.blockReason).not.toContain("timed out");
+    vi.doUnmock("./risk-approval-client.js");
+  });
+});
+
+describe("BehaviorDetector local hard block without core credentials", () => {
+  it("blocks local P0 rules even when core credentials are missing", async () => {
+    const detector = new BehaviorDetector(config, log);
+    const decision = await detector.onBeforeToolCall(
+      { sessionKey: "session-local" },
+      { toolName: "exec", params: { command: "powershell -enc abc" } },
+    );
+    expect(decision?.block).toBe(true);
+    expect(decision?.blockReason).toContain("local rule RCE-PS-ENC");
+  });
+
+  it("blocks bare rm -rf without a root path suffix", async () => {
+    const detector = new BehaviorDetector(
+      { ...config, riskPolicy: "approve" as const },
+      log,
+    );
+    vi.doMock("./risk-approval-client.js", () => ({
+      registerRiskApprovalRequest: vi.fn().mockResolvedValue({
+        id: "risk-rm-test",
+        slug: "risk-rm-test",
+        expiresAtMs: Date.now() + 120_000,
+      }),
+      getRiskApprovalDecision: vi.fn(),
+    }));
+    const { BehaviorDetector: Detector } = await import("./behavior-detector.js");
+    const approveDetector = new Detector({ ...config, riskPolicy: "approve" as const }, log);
+    const decision = await approveDetector.onBeforeToolCall(
+      { sessionKey: "session-rm" },
+      { toolName: "exec", params: { command: "rm -rf" } },
+    );
+    expect(decision?.block).toBe(true);
+    expect(decision?.blockReason).toContain("local rule DESTRUCTIVE-RM");
+    vi.doUnmock("./risk-approval-client.js");
   });
 });
 

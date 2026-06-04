@@ -658,7 +658,10 @@ export class OpenClawApp extends LitElement {
     this.execApprovalBusy = true;
     this.execApprovalError = null;
     try {
-      await this.client.request("exec.approval.resolve", {
+      const resolveMethod = active.id.toLowerCase().startsWith("risk")
+        ? "risk.approval.resolve"
+        : "exec.approval.resolve";
+      await this.client.request(resolveMethod, {
         id: active.id,
         decision,
       });

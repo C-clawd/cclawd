@@ -34,6 +34,10 @@ const METHOD_SCOPE_GROUPS: Record<OperatorScope, readonly string[]> = {
     "exec.approval.request",
     "exec.approval.waitDecision",
     "exec.approval.resolve",
+    "risk.approval.request",
+    "risk.approval.waitDecision",
+    "risk.approval.getDecision",
+    "risk.approval.resolve",
   ],
   [PAIRING_SCOPE]: [
     "node.pair.request",

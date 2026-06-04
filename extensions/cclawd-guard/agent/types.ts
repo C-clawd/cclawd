@@ -6,9 +6,14 @@
 // Configuration Types
 // =============================================================================
 
+export type RiskPolicy = "block" | "approve" | "allow";
+
 export type CClawdGuardConfig = {
   enabled?: boolean;
+  /** @deprecated Use riskPolicy instead. When riskPolicy is omitted, true → block and false → allow. */
   blockOnRisk?: boolean;
+  /** How to handle detected risk: block (default), approve (human decision), or allow (log only). */
+  riskPolicy?: RiskPolicy;
   /** API key for CClawd Guard Core. Auto-registered if empty. */
   apiKey?: string;
   timeoutMs?: number;

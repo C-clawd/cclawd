@@ -27,6 +27,7 @@ import {
   type RegisterResult,
 } from "./agent/config.js";
 import { BehaviorDetector, type QuotaExceededInfo } from "./agent/behavior-detector.js";
+import { setRiskApprovalResolvedHook } from "../../src/infra/risk-approval-followup.js";
 import { EventReporter } from "./agent/event-reporter.js";
 import { ConfigSync, type BusinessConfig } from "./agent/config-sync.js";
 import { isBlockingHook, type HookType } from "./agent/hook-types.js";
@@ -234,6 +235,12 @@ let autoScanEnabled = false;
 let currentAccountPlan = "free";
 let gatewayBootstrapPromise: Promise<void> | null = null;
 
+function wireRiskApprovalResolvedHook(detector: BehaviorDetector): void {
+  setRiskApprovalResolvedHook((resolved) => {
+    detector.applyRiskApprovalResolution(resolved);
+  });
+}
+
 // =============================================================================
 // Ensure default config in openclaw.json
 // =============================================================================
@@ -366,10 +373,13 @@ const openClawGuardPlugin = {
           coreUrl: config.coreUrl,
           assessTimeoutMs: Math.min(config.timeoutMs, 3000),
           blockOnRisk: config.blockOnRisk,
+          riskPolicy: config.riskPolicy,
+          riskApprovalTimeoutMs: Math.max(config.timeoutMs, 120_000),
           pluginVersion: PLUGIN_VERSION,
         },
         log,
       );
+      wireRiskApprovalResolvedHook(globalBehaviorDetector);
     }
 
     if (!globalEventReporter) {
@@ -724,6 +734,14 @@ const openClawGuardPlugin = {
 
       if (globalBehaviorDetector && event.from === "user") {
         globalBehaviorDetector.setUserIntent(sessionKey, text);
+        void globalBehaviorDetector
+          .registerProactiveRiskApproval(
+            { sessionKey, agentId: (ctx as { agentId?: string }).agentId },
+            text,
+          )
+          .catch((err) => {
+            log.error(`Proactive risk approval: ${String(err)}`);
+          });
       }
 
       // Report to Core (non-blocking)
@@ -768,7 +786,12 @@ const openClawGuardPlugin = {
         if (globalBehaviorDetector) {
           const decision = await globalBehaviorDetector.onBeforeToolCall(
             { sessionKey: ctx.sessionKey ?? "", agentId: ctx.agentId },
-            { toolName: event.toolName, params: event.params as Record<string, unknown> },
+            {
+              toolName: event.toolName,
+              params: event.params as Record<string, unknown>,
+              toolCallId: event.toolCallId,
+              runId: event.runId ?? ctx.runId,
+            },
           );
           if (decision?.block) {
             blocked = true;
@@ -2068,11 +2091,14 @@ const openClawGuardPlugin = {
               coreUrl: config.coreUrl,
               assessTimeoutMs: Math.min(config.timeoutMs, 3000),
               blockOnRisk: config.blockOnRisk,
+              riskPolicy: config.riskPolicy,
+              riskApprovalTimeoutMs: Math.max(config.timeoutMs, 120_000),
               pluginVersion: PLUGIN_VERSION,
             },
             log,
           );
           globalBehaviorDetector.setCredentials(result.credentials);
+          wireRiskApprovalResolvedHook(globalBehaviorDetector);
 
           return {
             text: [

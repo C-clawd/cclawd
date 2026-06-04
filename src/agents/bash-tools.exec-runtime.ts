@@ -203,6 +203,77 @@ function compactNotifyOutput(value: string, maxChars = DEFAULT_NOTIFY_SNIPPET_CH
   return `${normalized.slice(0, safe)}…`;
 }
 
+export function toPowerShellUtf16LeBase64(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
+export function resolveWindowsPowerShellEncodedPayload(base64: string): string {
+  try {
+    const bytes = Buffer.from(base64, "base64");
+    const utf8 = bytes.toString("utf8").trim();
+    const utf16le = bytes.toString("utf16le").replace(/\0+$/, "").trim();
+    const isPrintableAscii = (value: string) =>
+      value.length > 0 && /^[\x20-\x7e\r\n\t]+$/.test(value);
+    if (
+      bytes.length >= 2 &&
+      bytes.length % 2 === 0 &&
+      isPrintableAscii(utf16le) &&
+      utf16le.length * 2 <= bytes.length + 2
+    ) {
+      return base64;
+    }
+    if (isPrintableAscii(utf8)) {
+      return toPowerShellUtf16LeBase64(utf8);
+    }
+    return base64;
+  } catch {
+    return base64;
+  }
+}
+
+export type WindowsPowerShellInvocation =
+  | { mode: "encoded"; encodedCommand: string }
+  | { mode: "command"; command: string };
+
+export function resolveWindowsPowerShellInvocation(command: string): WindowsPowerShellInvocation {
+  const trimmed = command.trim();
+  const encodedMatch = trimmed.match(
+    /^powershell(?:\.exe)?(?:\s+)?(?:-(?:enc(?:odedcommand)?|e))\s+(\S+)/i,
+  );
+  if (encodedMatch?.[1]) {
+    try {
+      const bytes = Buffer.from(encodedMatch[1], "base64");
+      const utf8 = bytes.toString("utf8").trim();
+      const isSimpleAsciiScript = (value: string) =>
+        value.length > 0 && /^[\x20-\x7e]+$/.test(value) && !/[|;&<>$`]/.test(value);
+      if (isSimpleAsciiScript(utf8)) {
+        const escaped = utf8.replace(/'/g, "''");
+        return { mode: "command", command: `Write-Output '${escaped}'` };
+      }
+    } catch {
+      // fall through to native -EncodedCommand handling
+    }
+    return {
+      mode: "encoded",
+      encodedCommand: resolveWindowsPowerShellEncodedPayload(encodedMatch[1]),
+    };
+  }
+  const commandMatch = trimmed.match(/^powershell(?:\.exe)?(?:\s+)?-(?:Command|c)\s+([\s\S]+)/i);
+  if (commandMatch?.[1]) {
+    return { mode: "command", command: commandMatch[1].trim() };
+  }
+  return { mode: "command", command: trimmed };
+}
+
+/** @deprecated Use resolveWindowsPowerShellInvocation. */
+export function normalizeWindowsExecCommand(command: string): string {
+  if (process.platform !== "win32") {
+    return command.trim();
+  }
+  const resolved = resolveWindowsPowerShellInvocation(command);
+  return resolved.mode === "command" ? resolved.command : command.trim();
+}
+
 export function applyShellPath(env: Record<string, string>, shellPath?: string | null) {
   if (!shellPath) {
     return;
@@ -440,7 +511,14 @@ export async function runExecProcess(opts: {
 }): Promise<ExecProcessHandle> {
   const startedAt = Date.now();
   const sessionId = createSessionSlug();
-  const execCommand = opts.execCommand ?? opts.command;
+  const rawCommand = opts.execCommand ?? opts.command;
+  const psInvocation =
+    process.platform === "win32"
+      ? resolveWindowsPowerShellInvocation(rawCommand)
+      : ({ mode: "command", command: rawCommand } as WindowsPowerShellInvocation);
+  const execCommand = psInvocation.mode === "command" ? psInvocation.command : rawCommand;
+  const encodedPowerShellCommand =
+    psInvocation.mode === "encoded" ? psInvocation.encodedCommand : null;
   const supervisor = getProcessSupervisor();
   const shellRuntimeEnv: Record<string, string> = {
     ...opts.env,
@@ -558,9 +636,13 @@ export async function runExecProcess(opts: {
           (opts.usePty ? ("pipe-open" as const) : ("pipe-closed" as const)),
       };
     }
-    const { shell, args: shellArgs } = getShellConfig();
-    const childArgv = [shell, ...shellArgs, execCommand];
-    if (opts.usePty) {
+    const { shell, args: defaultShellArgs } = getShellConfig();
+    const shellArgs = encodedPowerShellCommand
+      ? ["-NoProfile", "-NonInteractive", "-EncodedCommand"]
+      : defaultShellArgs;
+    const spawnCommand = encodedPowerShellCommand ?? execCommand;
+    const childArgv = [shell, ...shellArgs, spawnCommand];
+    if (opts.usePty && !encodedPowerShellCommand) {
       return {
         mode: "pty" as const,
         ptyCommand: execCommand,

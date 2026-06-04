@@ -3,6 +3,7 @@ import {
   isTelegramExecApprovalClientEnabled,
 } from "../../../extensions/telegram/api.js";
 import { callGateway } from "../../gateway/call.js";
+import { RISK_APPROVAL_ID_PREFIX } from "../../infra/risk-approvals.js";
 import { logVerbose } from "../../globals.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../../utils/message-channel.js";
 import { requireGatewayClientScopeForInternalChannel } from "./command-gates.js";
@@ -125,9 +126,15 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
   }
 
   const resolvedBy = buildResolvedByLabel(params);
+  const normalizedId = parsed.id.trim().toLowerCase();
+  const isRiskApproval =
+    normalizedId.startsWith(RISK_APPROVAL_ID_PREFIX) ||
+    normalizedId.startsWith("risk");
+  const resolveMethod = isRiskApproval ? "risk.approval.resolve" : "exec.approval.resolve";
+  const approvalKind = isRiskApproval ? "Guard risk" : "Exec";
   try {
     await callGateway({
-      method: "exec.approval.resolve",
+      method: resolveMethod,
       params: { id: parsed.id, decision: parsed.decision },
       clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
       clientDisplayName: `Chat approval (${resolvedBy})`,
@@ -144,6 +151,8 @@ export const handleApproveCommand: CommandHandler = async (params, allowTextComm
 
   return {
     shouldContinue: false,
-    reply: { text: `✅ Exec approval ${parsed.decision} submitted for ${parsed.id}.` },
+    reply: {
+      text: `✅ ${approvalKind} approval ${parsed.decision} submitted for ${parsed.id}. Running the approved command now…`,
+    },
   };
 };
